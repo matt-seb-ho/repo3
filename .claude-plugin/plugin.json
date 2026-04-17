@@ -1,0 +1,14 @@
+{
+  "name": "repo3-plugin",
+  "version": "0.1.0",
+  "description": "Starter Claude Code plugin scaffold with a maintainable skill structure.",
+  "author": {
+    "name": "Brian Liu"
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "skills"
+  ]
+}
