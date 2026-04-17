@@ -2,6 +2,7 @@
 # dependencies = [
 #   "chromadb>=1.0.0,<2",
 #   "mcp>=1.0.0,<2",
+#   "openai>=1.0.0,<3",
 #   "python-dotenv>=1.0.0,<2",
 # ]
 # ///
