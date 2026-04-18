@@ -5,6 +5,10 @@ description: Use when answering GEOS documentation, XML syntax, or schema questi
 
 Use the GEOS RAG MCP tools before answering questions about GEOS XML syntax, examples, or documentation.
 
+If `/workspace/GEOS_PRIMER.md` exists, read it before using GEOS documentation,
+examples, schema, or RAG tools. Treat it as the high-level orientation for the
+task, then use the RAG tools for task-specific evidence and exact XML details.
+
 Tool selection:
 
 - Use `search_navigator` for conceptual orientation, feature discovery, solver docs, tutorials, and source RST references.
