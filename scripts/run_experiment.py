@@ -879,6 +879,9 @@ def build_claude_native_command(
     cmd += [
         "--output-format", "stream-json",
         "--permission-mode", "bypassPermissions",
+        # Separator so a prompt starting with `--` (e.g. the task spec opens
+        # with `--- BEGIN SIMULATION SPECIFICATION ---`) isn't parsed as a flag.
+        "--",
         prompt,
     ]
     return cmd
