@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ACP/X JSONL Viewer",
-  description: "Inspect ACP, Claude Code, and transcript JSONL logs."
+  title: "GEOS Agent Dashboard",
+  description: "Inspect transcripts and monitor running GEOS agent simulations."
 };
 
 export default function RootLayout({

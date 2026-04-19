@@ -5,9 +5,11 @@ description: Use when answering GEOS documentation, XML syntax, or schema questi
 
 Use the GEOS RAG MCP tools before answering questions about GEOS XML syntax, examples, or documentation.
 
-If `/workspace/GEOS_PRIMER.md` exists, read it before using GEOS documentation,
-examples, schema, or RAG tools. Treat it as the high-level orientation for the
-task, then use the RAG tools for task-specific evidence and exact XML details.
+The GEOS primer is normally injected into the agent system context by the
+experiment runner. Do not look for `/workspace/GEOS_PRIMER.md`; task
+workspaces intentionally omit that file. Treat the system-provided primer as
+the high-level orientation for the task, then use the RAG tools for
+task-specific evidence and exact XML details.
 
 Tool selection:
 

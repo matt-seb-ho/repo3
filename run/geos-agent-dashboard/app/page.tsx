@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   ParsedEvent,
@@ -109,6 +110,11 @@ export default function Home() {
 
   return (
     <main className="app-shell">
+      <div className="nav-tabs">
+        <span className="nav-tab active">Transcript Viewer</span>
+        <Link href="/simulations" className="nav-tab">Simulations</Link>
+      </div>
+
       <section className="path-band">
         <div className="brand-lockup" aria-label="Transcript inspector">
           <div className="brand-mark" aria-hidden="true">
