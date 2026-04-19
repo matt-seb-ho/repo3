@@ -9,8 +9,8 @@ They arrive at very different plumbing.
 |-------------------------|---------------------------------------------|-----------------------------------------------------|
 | Execution model         | In-process Python + subprocess CC on host   | One Docker container per (agent, task)              |
 | CC invocation           | Via `misanthropic-cc`'s `run_openrouter`    | Direct `claude -p` with stream-json                  |
-| System prompt           | GEOS primer + cheatsheet concatenated inline into `--append-system-prompt-file` | `AGENTS.md` + task instructions; primer *read by the agent* as first tool call |
-| Tool / skill surface    | Default CC tools; no plugin                 | **`repo3` plugin** (`geos-rag` skill + RAG MCP server) |
+| System prompt           | GEOS primer + cheatsheet concatenated inline into `--append-system-prompt-file` | `AGENTS.md` + GEOS primer injected via `--append-system-prompt`; task instructions passed as the user prompt |
+| Tool / skill surface    | Default CC tools; no plugin                 | Default CC tools + explicit **repo3 GEOS RAG MCP server** |
 | Knowledge retrieval     | Raw file browsing of sanitized GEOS copy    | RAG over per-task ChromaDB copy, plus file browsing |
 | Contamination: variant expansion | ✅ Stem-based expansion (`Foo_base` → `Foo_benchmark`, `Foo_smoke`, …) | ✅ Ported into `src/runner/contamination.py` |
 | Contamination: RST blocking | ✅ Via `example_pairs.jsonl` | ✅ Via `example_pairs.jsonl` (wired through `EXCLUDED_RST_PATHS`) |
@@ -35,19 +35,19 @@ They arrive at very different plumbing.
 …and passes it via `--append-system-prompt-file`. The agent starts with
 the primer already in context.
 
-**`repo3`** keeps `AGENTS.md` lean — one page of workspace + file-placement
-rules — and instructs the agent to `Read /workspace/GEOS_PRIMER.md` as its
-first tool call. This:
-
-- Keeps the system-prompt budget small (the primer shows up as a tool
-  result, which models cache across turns).
-- Makes it explicit in the event stream that the agent has the primer
-  context — easy to verify in `events.jsonl`.
-- Lets the primer evolve without rebuilding any packaging.
+**`repo3`** injects `AGENTS.md` plus the GEOS primer through Claude Code's
+system prompt path. The task workspace intentionally omits
+`/workspace/GEOS_PRIMER.md`, so the agent cannot waste a turn trying to read
+the primer or silently skip it.
 
 ### 2. Skills and MCP
 
-`repo3` ships a Claude Code plugin at `plugin/`. The plugin contributes:
+`repo3` ships a Claude Code plugin at `plugin/`, but the native Claude eval
+path wires the RAG server directly through `--mcp-config` instead of loading
+the plugin's skill wrapper. This avoids provider-specific message-shape errors
+from synthetic skill messages while keeping the same RAG tools available.
+
+The plugin contributes:
 
 - The `geos-rag` skill (retrieval instructions for the agent).
 - An MCP server (`plugin/scripts/geos_rag_mcp.py`) exposing

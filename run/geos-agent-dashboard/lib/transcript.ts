@@ -293,7 +293,7 @@ function summarize(
     totalEvents: events.length,
     numTurns: result ? getNumber(result.num_turns) : null,
     durationMs: result ? getNumber(result.duration_ms) : null,
-    costUsd: result ? getNumber(result.total_cost_usd) : null,
+    costUsd: result ? (getNumber(result.openrouter_cost_usd) ?? getNumber(result.total_cost_usd)) : null,
     countsByType,
     countsByKind,
     toolCounts,
@@ -397,12 +397,15 @@ function eventPreview(record: TranscriptRecord, blocks: ContentBlock[], kind: st
 
   if (record.type === "result") {
     const turns = getNumber(record.num_turns);
-    const cost = getNumber(record.total_cost_usd);
+    const orCost = getNumber(record.openrouter_cost_usd);
+    const ccCost = getNumber(record.total_cost_usd);
+    const cost = orCost ?? ccCost;
+    const costLabel = cost == null ? null : orCost != null ? `$${cost.toFixed(4)} (OR)` : `$${cost.toFixed(4)} (CC)`;
     const duration = getNumber(record.duration_ms);
 
     return compact([
       turns == null ? null : `${turns} turns`,
-      cost == null ? null : `$${cost.toFixed(4)}`,
+      costLabel,
       duration == null ? null : formatDuration(duration)
     ]).join(" | ");
   }

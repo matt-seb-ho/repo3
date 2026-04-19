@@ -35,11 +35,10 @@ For each (agent, task) pair `run_eval.py`:
    task.
 2. **Prepare a per-task result dir** at
    `data/eval/<agent>/<run_name>/<task>/`.
-3. **Copy the GEOS primer** into that dir so the container sees it at
-   `/workspace/GEOS_PRIMER.md`.
-4. **Build the agent prompt** from `run/AGENTS.md` + the task's
-   `instructions.txt`, then prepend a bootstrap message instructing the
-   agent to read the primer first.
+3. **Build the system context** from `run/AGENTS.md` plus the GEOS primer.
+   The primer is injected into the agent system prompt; `/workspace/GEOS_PRIMER.md`
+   is intentionally not created.
+4. **Build the task prompt** from the task's `instructions.txt`.
 5. For `claude_native`:
    a. Copy the shared vector DB into the task dir (ChromaDB takes write
       locks even for reads, so a per-task copy is required for parallelism).
@@ -72,10 +71,9 @@ data/eval/<agent>/<run_name>/<task>/
 ├── stderr.txt
 ├── exit_code.txt
 ├── status.json              # live heartbeat; final state on exit
-├── eval_metadata.json       # task, blocked files, primer paths, start time
+├── eval_metadata.json       # task, blocked files, primer delivery, start time
 ├── mcp_preflight.json       # claude_native only — MCP smoke-test result
-├── claude_mcp_config.json   # claude_native only — explicit MCP wiring
-└── GEOS_PRIMER.md
+└── claude_mcp_config.json   # claude_native only — explicit MCP wiring
 ```
 
 Downstream: `scripts/eval/batch_evaluate.py` reads `inputs/` for each task

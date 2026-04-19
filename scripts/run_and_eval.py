@@ -73,7 +73,7 @@ def main() -> int:
                    help=f"Per-agent <run>/<agent>/*.json score output "
                         f"(default: {DEFAULT_EVAL_RESULTS_ROOT}).")
     p.add_argument("--workers", "-w", type=int, default=1)
-    p.add_argument("--timeout", "-t", type=int, default=600)
+    p.add_argument("--timeout", "-t", type=int, default=1200)
     p.add_argument("--dry-run", action="store_true",
                    help="Print docker commands without executing (run phase only).")
     p.add_argument("--legacy", action="store_true",
