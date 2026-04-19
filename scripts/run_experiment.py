@@ -75,6 +75,13 @@ try:
 except ImportError:
     pass
 
+# Claude Code authenticates to OpenRouter via ANTHROPIC_AUTH_TOKEN (paired with
+# ANTHROPIC_BASE_URL=https://openrouter.ai/api). If only OPENROUTER_API_KEY is
+# set (common in .env files), promote it so the same key works for both the
+# Claude CLI and the MCP server's embedding calls.
+if os.environ.get("OPENROUTER_API_KEY") and not os.environ.get("ANTHROPIC_AUTH_TOKEN"):
+    os.environ["ANTHROPIC_AUTH_TOKEN"] = os.environ["OPENROUTER_API_KEY"]
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -136,6 +143,18 @@ AGENTS: dict[str, dict] = {
         "api_key_env": "ANTHROPIC_AUTH_TOKEN",
         "model": DEFAULT_CLAUDE_MODEL,
         "requires_rag": True,
+        "plugin_enabled": True,
+    },
+    # Ablation: same container, same primer, same prompt — but no repo3
+    # plugin, no RAG tools, no vector DB. Baseline for measuring the plugin's
+    # contribution. /geos_lib is still the filtered (decontaminated) copy.
+    "claude_code_no_plugin": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_no_plugin",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": False,
     },
     "cursor_composer2": {
         "runner": "acpx",
@@ -659,18 +678,26 @@ def build_claude_native_command(
     *,
     filtered_geos: Path,
     result_dir: Path,
-    plugin_dir: Path,
-    vector_db_dir: Path,
+    plugin_dir: Path | None,
+    vector_db_dir: Path | None,
     model: str,
     prompt: str,
+    enable_plugin: bool = True,
 ) -> list[str]:
-    return [
+    cmd = [
         "docker", "run", "--rm",
         "--user", f"{os.getuid()}:{os.getgid()}",
         "-v", f"{filtered_geos}:/geos_lib:ro",
         "-v", f"{result_dir}:/workspace:rw",
-        "-v", f"{plugin_dir}:/plugins/repo3:ro",
-        "-v", f"{vector_db_dir}:{CONTAINER_VECTOR_DB_DIR}:rw",
+    ]
+    if enable_plugin:
+        if plugin_dir is None or vector_db_dir is None:
+            raise ValueError("plugin_dir and vector_db_dir required when enable_plugin=True")
+        cmd += [
+            "-v", f"{plugin_dir}:/plugins/repo3:ro",
+            "-v", f"{vector_db_dir}:{CONTAINER_VECTOR_DB_DIR}:rw",
+        ]
+    cmd += [
         "-e", "HOME=/workspace/.claude_home",
         "-e", "XDG_CONFIG_HOME=/workspace/.claude_home/.config",
         "-e", "UV_CACHE_DIR=/workspace/.uv_cache",
@@ -679,48 +706,60 @@ def build_claude_native_command(
         "-e", "ANTHROPIC_API_KEY",
         "-e", "OPENROUTER_API_KEY",
         "-e", "OPENAI_API_KEY",
-        "-e", "GEOS_VECTOR_DB_DIR",
-        "-e", "EXCLUDED_GT_XML_FILENAMES",
-        "-e", "EXCLUDED_RST_PATHS",
+    ]
+    if enable_plugin:
+        cmd += [
+            "-e", "GEOS_VECTOR_DB_DIR",
+            "-e", "EXCLUDED_GT_XML_FILENAMES",
+            "-e", "EXCLUDED_RST_PATHS",
+        ]
+    cmd += [
         DOCKER_IMAGE,
         "claude",
         "-p",
         "--verbose",
         "--model", model,
         "--tools", NATIVE_CLAUDE_TOOLS,
-        "--plugin-dir", str(CONTAINER_PLUGIN_DIR),
-        f"--mcp-config={CONTAINER_MCP_CONFIG_PATH}",
-        "--strict-mcp-config",
+    ]
+    if enable_plugin:
+        cmd += [
+            "--plugin-dir", str(CONTAINER_PLUGIN_DIR),
+            f"--mcp-config={CONTAINER_MCP_CONFIG_PATH}",
+            "--strict-mcp-config",
+        ]
+    cmd += [
         "--output-format", "stream-json",
         "--permission-mode", "bypassPermissions",
         prompt,
     ]
+    return cmd
 
 
 def build_claude_native_env(
     *,
     blocked_xml_filenames: list[str],
     blocked_rst_relpaths: list[str],
-    vector_db_dir: Path,
+    vector_db_dir: Path | None,
 ) -> dict[str, str]:
     env = os.environ.copy()
     env["ANTHROPIC_BASE_URL"] = os.environ.get(
         "ANTHROPIC_BASE_URL",
         "https://openrouter.ai/api",
     )
-    env["GEOS_VECTOR_DB_DIR"] = str(CONTAINER_VECTOR_DB_DIR)
-    env["EXCLUDED_GT_XML_FILENAMES"] = json.dumps(blocked_xml_filenames)
-    env["EXCLUDED_RST_PATHS"] = json.dumps(blocked_rst_relpaths)
+    if vector_db_dir is not None:
+        env["GEOS_VECTOR_DB_DIR"] = str(CONTAINER_VECTOR_DB_DIR)
+        env["EXCLUDED_GT_XML_FILENAMES"] = json.dumps(blocked_xml_filenames)
+        env["EXCLUDED_RST_PATHS"] = json.dumps(blocked_rst_relpaths)
 
-    # The repo3 MCP server uses OPENROUTER_API_KEY for embeddings.  For this
-    # eval path, the OpenRouter Claude auth token is a suitable fallback without
-    # putting a secret in the docker command line.
-    if not env.get("OPENROUTER_API_KEY") and env.get("ANTHROPIC_AUTH_TOKEN"):
-        env["OPENROUTER_API_KEY"] = env["ANTHROPIC_AUTH_TOKEN"]
+        # The repo3 MCP server uses OPENROUTER_API_KEY for embeddings.  For this
+        # eval path, the OpenRouter Claude auth token is a suitable fallback without
+        # putting a secret in the docker command line.
+        if not env.get("OPENROUTER_API_KEY") and env.get("ANTHROPIC_AUTH_TOKEN"):
+            env["OPENROUTER_API_KEY"] = env["ANTHROPIC_AUTH_TOKEN"]
 
-    # Keep the host path available in metadata/debug logs without overriding the
-    # container-visible GEOS_VECTOR_DB_DIR used by the MCP server.
-    env["HOST_GEOS_VECTOR_DB_DIR"] = str(vector_db_dir)
+        # Keep the host path available in metadata/debug logs without overriding the
+        # container-visible GEOS_VECTOR_DB_DIR used by the MCP server.
+        env["HOST_GEOS_VECTOR_DB_DIR"] = str(vector_db_dir)
     return env
 
 
@@ -945,10 +984,14 @@ def run_task(
     primer_workspace_path: Path | None = None
     if resolved_geos_primer_path.exists():
         primer_workspace_path = copy_geos_primer(resolved_geos_primer_path, result_dir)
-        # Skip the explicit read instruction for plugin agents — the geos-rag
-        # SKILL.md already instructs the agent to read the primer if present,
-        # so prepending here causes a duplicate read.
-        if agent.get("runner") != "claude_native":
+        # Skip the explicit read instruction only when the repo3 plugin is
+        # active — its geos-rag SKILL.md tells the agent to read the primer.
+        # Ablated / non-plugin agents need the explicit prepend.
+        plugin_active = (
+            agent.get("runner") == "claude_native"
+            and agent.get("plugin_enabled", True)
+        )
+        if not plugin_active:
             prompt = prepend_geos_primer_instruction(prompt)
 
     # Collect blocked files for this experiment.  Variant expansion blocks
@@ -984,30 +1027,39 @@ def run_task(
 
     runner = agent.get("runner", "acpx")
     if runner == "claude_native":
-        plugin_dir = (plugin_dir or DEFAULT_PLUGIN_DIR).resolve()
-        vector_db_dir = (vector_db_dir or DEFAULT_VECTOR_DB_DIR).resolve()
+        enable_plugin = agent.get("plugin_enabled", True)
         cleanup_vector_db_copy = False
-        runtime_vector_db_dir = result_dir / ".vector_db_runtime"
-        if not dry_run:
-            try:
-                runtime_vector_db_dir = create_runtime_vector_db_copy(vector_db_dir, result_dir)
-                cleanup_vector_db_copy = True
-            except Exception:
-                if cleanup_filtered_copy:
-                    cleanup_filtered_geos_copy(filtered_geos)
-                raise
-        mcp_config_path = write_claude_mcp_config(
-            result_dir=result_dir,
-            blocked_xml_filenames=blocked_xml_filenames,
-            blocked_rst_relpaths=blocked_rst_relpaths,
-        )
+        runtime_vector_db_dir: Path | None = None
+        mcp_config_path: Path | None = None
+        if enable_plugin:
+            plugin_dir = (plugin_dir or DEFAULT_PLUGIN_DIR).resolve()
+            vector_db_dir = (vector_db_dir or DEFAULT_VECTOR_DB_DIR).resolve()
+            runtime_vector_db_dir = result_dir / ".vector_db_runtime"
+            if not dry_run:
+                try:
+                    runtime_vector_db_dir = create_runtime_vector_db_copy(vector_db_dir, result_dir)
+                    cleanup_vector_db_copy = True
+                except Exception:
+                    if cleanup_filtered_copy:
+                        cleanup_filtered_geos_copy(filtered_geos)
+                    raise
+            mcp_config_path = write_claude_mcp_config(
+                result_dir=result_dir,
+                blocked_xml_filenames=blocked_xml_filenames,
+                blocked_rst_relpaths=blocked_rst_relpaths,
+            )
+        else:
+            plugin_dir = None
         native_model = claude_model or agent.get("model") or DEFAULT_CLAUDE_MODEL
-        native_prompt = (
-            "Use the repo3-plugin geos-rag skill for this task. "
-            "Before writing XML, call at least one of the plugin RAG tools: "
-            "search_navigator, search_schema, or search_technical.\n\n"
-            f"{prompt}"
-        )
+        if enable_plugin:
+            native_prompt = (
+                "Use the repo3-plugin geos-rag skill for this task. "
+                "Before writing XML, call at least one of the plugin RAG tools: "
+                "search_navigator, search_schema, or search_technical.\n\n"
+                f"{prompt}"
+            )
+        else:
+            native_prompt = prompt
         cmd = build_claude_native_command(
             filtered_geos=filtered_geos,
             result_dir=result_dir,
@@ -1015,11 +1067,12 @@ def run_task(
             vector_db_dir=runtime_vector_db_dir,
             model=native_model,
             prompt=native_prompt,
+            enable_plugin=enable_plugin,
         )
         docker_env = build_claude_native_env(
             blocked_xml_filenames=blocked_xml_filenames,
             blocked_rst_relpaths=blocked_rst_relpaths,
-            vector_db_dir=vector_db_dir,
+            vector_db_dir=vector_db_dir if enable_plugin else None,
         )
 
         if dry_run:
@@ -1034,14 +1087,24 @@ def run_task(
                     "agent": agent_key,
                     "runner": runner,
                     "run_name": run_name,
-                    "plugin_dir": str(plugin_dir),
-                    "plugin_manifest": str(plugin_dir / ".claude-plugin" / "plugin.json"),
-                    "vector_db_dir": str(vector_db_dir),
-                    "runtime_vector_db_dir": str(runtime_vector_db_dir),
-                    "container_plugin_dir": str(CONTAINER_PLUGIN_DIR),
-                    "container_vector_db_dir": str(CONTAINER_VECTOR_DB_DIR),
-                    "mcp_config_path": str(mcp_config_path),
-                    "container_mcp_config_path": str(CONTAINER_MCP_CONFIG_PATH),
+                    "plugin_enabled": enable_plugin,
+                    "plugin_dir": str(plugin_dir) if plugin_dir else None,
+                    "plugin_manifest": (
+                        str(plugin_dir / ".claude-plugin" / "plugin.json")
+                        if plugin_dir else None
+                    ),
+                    "vector_db_dir": str(vector_db_dir) if enable_plugin else None,
+                    "runtime_vector_db_dir": (
+                        str(runtime_vector_db_dir) if runtime_vector_db_dir else None
+                    ),
+                    "container_plugin_dir": str(CONTAINER_PLUGIN_DIR) if enable_plugin else None,
+                    "container_vector_db_dir": (
+                        str(CONTAINER_VECTOR_DB_DIR) if enable_plugin else None
+                    ),
+                    "mcp_config_path": str(mcp_config_path) if mcp_config_path else None,
+                    "container_mcp_config_path": (
+                        str(CONTAINER_MCP_CONFIG_PATH) if enable_plugin else None
+                    ),
                     "geos_primer_path": str(resolved_geos_primer_path),
                     "primer_workspace_path": str(primer_workspace_path) if primer_workspace_path else None,
                     "container_geos_primer_path": str(CONTAINER_GEOS_PRIMER_PATH),
@@ -1071,11 +1134,12 @@ def run_task(
                     **_new_tool_counts(),
                 },
             )
-            preflight_claude_native_mcp(
-                result_dir=result_dir,
-                plugin_dir=plugin_dir,
-                vector_db_dir=runtime_vector_db_dir,
-            )
+            if enable_plugin:
+                preflight_claude_native_mcp(
+                    result_dir=result_dir,
+                    plugin_dir=plugin_dir,
+                    vector_db_dir=runtime_vector_db_dir,
+                )
 
             attempt = 0
             current_cmd = cmd
@@ -1118,6 +1182,7 @@ def run_task(
                     vector_db_dir=runtime_vector_db_dir,
                     model=native_model,
                     prompt=retry_prompt,
+                    enable_plugin=enable_plugin,
                 )
                 _safe_write_json(
                     result_dir / "status.json",
@@ -2516,7 +2581,12 @@ def main() -> None:
         AGENTS[agent_key].get("runner") == "claude_native"
         for agent_key in args.agents
     )
-    if selected_native_claude and not args.dashboard_only:
+    selected_plugin_agent = any(
+        AGENTS[agent_key].get("runner") == "claude_native"
+        and AGENTS[agent_key].get("plugin_enabled", True)
+        for agent_key in args.agents
+    )
+    if selected_plugin_agent and not args.dashboard_only:
         if not args.plugin_dir.exists():
             print(f"{C.FAIL}Error: plugin dir not found: {args.plugin_dir}{C.ENDC}")
             sys.exit(1)
@@ -2529,10 +2599,11 @@ def main() -> None:
         if not args.vector_db_dir.exists():
             print(f"{C.FAIL}Error: vector DB dir not found: {args.vector_db_dir}{C.ENDC}")
             sys.exit(1)
+    if selected_native_claude and not args.dashboard_only:
         if not args.dry_run and not os.environ.get("ANTHROPIC_AUTH_TOKEN"):
             print(
                 f"{C.FAIL}Error: ANTHROPIC_AUTH_TOKEN is required for "
-                f"claude_code_repo3_plugin. Export it in your shell before running.{C.ENDC}"
+                f"claude_native agents. Export it in your shell before running.{C.ENDC}"
             )
             sys.exit(1)
 
