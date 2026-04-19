@@ -945,7 +945,11 @@ def run_task(
     primer_workspace_path: Path | None = None
     if resolved_geos_primer_path.exists():
         primer_workspace_path = copy_geos_primer(resolved_geos_primer_path, result_dir)
-        prompt = prepend_geos_primer_instruction(prompt)
+        # Skip the explicit read instruction for plugin agents — the geos-rag
+        # SKILL.md already instructs the agent to read the primer if present,
+        # so prepending here causes a duplicate read.
+        if agent.get("runner") != "claude_native":
+            prompt = prepend_geos_primer_instruction(prompt)
 
     # Collect blocked files for this experiment.  Variant expansion blocks
     # siblings like Foo_benchmark.xml when GT contains Foo_base.xml, and the
