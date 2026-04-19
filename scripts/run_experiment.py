@@ -80,7 +80,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = Path(__file__).parent
-REPO_ROOT = SCRIPT_DIR.parent  # run/ is one level below repo root
+REPO_ROOT = SCRIPT_DIR.parent  # scripts/ is one level below repo root
+RUN_ASSETS_DIR = REPO_ROOT / "run"  # AGENTS.md + Dockerfile live here
 DATA_DIR = REPO_ROOT / "data"
 EXPERIMENTS_DIR = DATA_DIR / "eval" / "experiments"
 GROUND_TRUTH_DIR = DATA_DIR / "eval" / "experiments_gt"
@@ -88,7 +89,16 @@ GEOS_LIB_DIR = DATA_DIR / "GEOS"
 # Temp copies of GEOS live here (same filesystem as GEOS_LIB_DIR so hardlinks work)
 TEMP_GEOS_PARENT = DATA_DIR / "eval" / "tmp_geos"
 DOCKER_IMAGE = "geos-eval"
-DEFAULT_PLUGIN_DIR = REPO_ROOT  # repo3 root is the plugin dir
+DEFAULT_PLUGIN_DIR = REPO_ROOT / "plugin"  # .claude-plugin/plugin.json lives under plugin/
+
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from src.runner.contamination import (  # noqa: E402
+    cleanup_filtered_geos_copy,
+    create_filtered_geos_copy,
+    get_blocked_files_for_task,
+)
 DEFAULT_VECTOR_DB_DIR = Path("/data/shared/geophysics_agent_data/data/vector_db")
 DEFAULT_GEOS_PRIMER_PATH = Path(
     "/home/brianliu/geophys-embodied-agent-framework/modules/profile/GEOS_PRIMER.md"
@@ -144,7 +154,7 @@ DEFAULT_TIMEOUT = 600  # seconds per task
 # ---------------------------------------------------------------------------
 
 def load_agents_md() -> str:
-    path = SCRIPT_DIR / "AGENTS.md"
+    path = RUN_ASSETS_DIR / "AGENTS.md"
     if not path.exists():
         raise FileNotFoundError(f"AGENTS.md not found at {path}")
     return path.read_text()
@@ -189,89 +199,6 @@ def redact_command_for_display(cmd: list[str]) -> str:
         else:
             redacted.append(token)
     return " ".join(redacted)
-
-
-# ---------------------------------------------------------------------------
-# Restriction helpers (mirrors run_experiments_no_geos_parallel.py pattern)
-# ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Filtered GEOS copy
-#
-# Creates a per-task hardlinked copy of GEOS_LIB_DIR with restricted files
-# removed.  Hardlinks are instantaneous and use no extra disk space when both
-# paths are on the same filesystem (TEMP_GEOS_PARENT should live under the
-# same mount as GEOS_LIB_DIR).  Falls back to a real copy if they differ.
-# ---------------------------------------------------------------------------
-
-def collect_ground_truth_xml_filenames(gt_experiment_dir: Path) -> list[str]:
-    """Return sorted list of XML basenames under one ground-truth experiment directory."""
-    if not gt_experiment_dir.exists():
-        return []
-    return sorted({p.name.lower() for p in gt_experiment_dir.rglob("*.xml") if p.is_file()})
-
-
-def create_filtered_geos_copy(
-    geos_src: Path,
-    blocked_xml_basenames: set[str],
-    tmp_parent: Path,
-    blocked_rst_relpaths: set[str] | None = None,
-) -> Path:
-    """Hardlink-copy geos_src into a fresh temp dir, omitting blocked files.
-
-    Returns the path of the copy (suitable for use as a Docker bind-mount
-    source).  Its parent directory should be passed to cleanup_filtered_geos_copy
-    when the experiment finishes.
-
-    Args:
-        geos_src: Original GEOS library directory.
-        blocked_xml_basenames: Lowercased XML basenames to exclude (e.g. 'deadoil_base.xml').
-        tmp_parent: Directory under which the temp copy is created.  Should be
-            on the same filesystem as geos_src for hardlinks to work.
-        blocked_rst_relpaths: Optional set of GEOS-relative RST paths to exclude
-            (e.g. 'src/docs/sphinx/basicExamples/multiphaseFlow/Example.rst').
-    """
-    tmp_parent.mkdir(parents=True, exist_ok=True)
-    # mkdtemp creates the unique parent dir; copytree fills geos/ inside it.
-    tmp_dir = Path(tempfile.mkdtemp(dir=tmp_parent, prefix="geos_eval_"))
-    geos_dest = tmp_dir / "geos"
-
-    blocked_xml_lower = {n.lower() for n in blocked_xml_basenames}
-    blocked_rst_lower = {p.replace("\\", "/").lower() for p in (blocked_rst_relpaths or set())}
-
-    def _ignore(src_dir: str, names: list[str]) -> set[str]:
-        skipped: set[str] = set()
-        for name in names:
-            if name.lower() in blocked_xml_lower:
-                skipped.add(name)
-                continue
-            if blocked_rst_lower:
-                try:
-                    rel = (Path(src_dir) / name).relative_to(geos_src)
-                    if str(rel).replace("\\", "/").lower() in blocked_rst_lower:
-                        skipped.add(name)
-                except ValueError:
-                    pass
-        return skipped
-
-    def _hardlink_or_copy(src: str, dst: str) -> None:
-        try:
-            os.link(src, dst)
-        except OSError:
-            shutil.copy2(src, dst)
-
-    shutil.copytree(
-        geos_src, geos_dest,
-        ignore=_ignore,
-        copy_function=_hardlink_or_copy,
-        symlinks=True,
-    )
-    return geos_dest
-
-
-def cleanup_filtered_geos_copy(geos_copy: Path) -> None:
-    """Remove the temp directory created by create_filtered_geos_copy."""
-    shutil.rmtree(geos_copy.parent, ignore_errors=True)
 
 
 def create_runtime_vector_db_copy(vector_db_src: Path, result_dir: Path) -> Path:
@@ -1020,11 +947,20 @@ def run_task(
         primer_workspace_path = copy_geos_primer(resolved_geos_primer_path, result_dir)
         prompt = prepend_geos_primer_instruction(prompt)
 
-    # Collect blocked GT XML filenames for this experiment
+    # Collect blocked files for this experiment.  Variant expansion blocks
+    # siblings like Foo_benchmark.xml when GT contains Foo_base.xml, and the
+    # RST path for this task (if mapped in example_pairs.jsonl) is blocked
+    # too so the source tutorial isn't readable.
     blocked_xml_filenames: list[str] = []
+    blocked_rst_relpaths: list[str] = []
     if ground_truth_dir is not None:
-        gt_experiment_dir = ground_truth_dir / task_name
-        blocked_xml_filenames = collect_ground_truth_xml_filenames(gt_experiment_dir)
+        blocked = get_blocked_files_for_task(
+            task_name,
+            ground_truth_dir,
+            geos_source_dir=GEOS_LIB_DIR,
+        )
+        blocked_xml_filenames = blocked["blocked_xml_filenames"]
+        blocked_rst_relpaths = blocked["blocked_rst_paths"]
 
     # Create a per-task filtered copy of GEOS with blocked files excluded.
     # This is the primary enforcement mechanism for file-read restrictions: the
@@ -1035,8 +971,9 @@ def run_task(
         filtered_geos = GEOS_LIB_DIR
     else:
         filtered_geos = create_filtered_geos_copy(
-            geos_src=GEOS_LIB_DIR,
-            blocked_xml_basenames=set(blocked_xml_filenames),
+            GEOS_LIB_DIR,
+            blocked_xml_basenames=blocked_xml_filenames,
+            blocked_rst_relpaths=blocked_rst_relpaths,
             tmp_parent=tmp_geos_parent or TEMP_GEOS_PARENT,
         )
         cleanup_filtered_copy = True
@@ -1055,7 +992,6 @@ def run_task(
                 if cleanup_filtered_copy:
                     cleanup_filtered_geos_copy(filtered_geos)
                 raise
-        blocked_rst_relpaths: list[str] = []
         mcp_config_path = write_claude_mcp_config(
             result_dir=result_dir,
             blocked_xml_filenames=blocked_xml_filenames,
@@ -2642,7 +2578,9 @@ def main() -> None:
     blocked_gt_by_task: dict[str, list[str]] = {}
     if ground_truth_dir is not None:
         blocked_gt_by_task = {
-            task: collect_ground_truth_xml_filenames(ground_truth_dir / task)
+            task: get_blocked_files_for_task(
+                task, ground_truth_dir, geos_source_dir=GEOS_LIB_DIR,
+            )["blocked_xml_filenames"]
             for task in tasks
         }
 

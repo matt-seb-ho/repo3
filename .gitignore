@@ -1,0 +1,31 @@
+# Local Claude Code state
+.claude/
+.claude-server-commander.log
+
+# Data volumes (symlinks into shared storage)
+/data
+/runs
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
