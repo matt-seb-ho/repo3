@@ -39,3 +39,6 @@ misc/*.log
 misc/launch_*.sh
 misc/ablation_deepseek_600s_backup/
 misc/ablation_deepseek_v2_failed_dash_bug/
+
+# Cloned external repos (kept locally as references, not vendored)
+misc/refs/
