@@ -150,6 +150,84 @@ AGENTS: dict[str, dict] = {
         "requires_rag": True,
         "plugin_enabled": True,
     },
+    # Plugin + frozen pre-learned cheatsheet (memory experiment, D-001).
+    # Same as claude_code_repo3_plugin but prepends plugin/cheatsheet.md to
+    # the system prompt. Cheatsheet is derived from a held-out train subset
+    # of past plugin-run trajectories.
+    "claude_code_repo3_plugin_mem": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_mem",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "cheatsheet.md",
+    },
+    # Short-cheatsheet variant (E05). Strips task-specific advice, keeps
+    # only cross-task-invariant rules + explicit stop criterion. Tests
+    # whether the E04 failure was cheatsheet content (specificity +
+    # instruction competition) or context bloat.
+    "claude_code_repo3_plugin_memshort": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_memshort",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "cheatsheet_short.md",
+    },
+    # Dynamic Cheatsheet (Cumulative) — cheatsheet evolves across batches
+    # of test tasks via an LLM curator between batches. Points at a
+    # MUTABLE cheatsheet file that the orchestrator (scripts/memory/
+    # dc_cu_orchestrate.py) rewrites between batches. Design in XN-004.
+    "claude_code_repo3_plugin_memdccu": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_memdccu",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "cheatsheet_dccu.md",
+    },
+    # Filetree injection (I08) — adds a precomputed index of /geos_lib/
+    # inputFiles XML paths to the system prompt so the agent can
+    # locate candidate reference XMLs without Glob/Bash find.
+    "claude_code_repo3_plugin_tree": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_tree",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "filetree.md",
+    },
+    # E09: Cheatsheet delivered via /workspace/CHEATSHEET.md instead of
+    # system-prompt injection. Tests whether the E04/E05 failure is
+    # about delivery channel (system prompt) or content type (cheatsheet).
+    "claude_code_repo3_plugin_memws": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_memws",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "cheatsheet_abstract.md",
+        "cheatsheet_in_workspace": True,
+    },
+    # E11: Frozen G-Memory-lite delivered as MCP tool `memory_lookup`.
+    # Agent calls memory_lookup(query) to retrieve past-task example
+    # files + productive RAG queries. Concrete (not abstract) memory
+    # via tool channel (not system prompt). Tests whether memory-as-tool
+    # avoids the failure modes of E04/E05/E07.
+    "claude_code_repo3_plugin_gmem": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_gmem",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "memory_enabled": True,
+    },
     # Ablation: same container, same primer, same prompt — but no repo3
     # plugin, no RAG tools, no vector DB. Baseline for measuring the plugin's
     # contribution. /geos_lib is still the filtered (decontaminated) copy.
@@ -281,7 +359,13 @@ def build_task_prompt(task_instructions: str) -> str:
     )
 
 
-def build_system_prompt(agents_context: str, geos_primer_path: Path) -> tuple[str, bool]:
+def build_system_prompt(
+    agents_context: str,
+    geos_primer_path: Path,
+    cheatsheet_path: Path | None = None,
+    cheatsheet_in_workspace: bool = False,
+    memory_enabled: bool = False,
+) -> tuple[str, bool]:
     primer_text = ""
     primer_inlined = False
     if geos_primer_path.exists() and "# GEOS Primer" not in agents_context:
@@ -294,8 +378,23 @@ def build_system_prompt(agents_context: str, geos_primer_path: Path) -> tuple[st
     elif "# GEOS Primer" in agents_context:
         primer_inlined = True
 
+    cheatsheet_text = ""
+    if cheatsheet_path is not None and Path(cheatsheet_path).exists():
+        if cheatsheet_in_workspace:
+            # Just a pointer; content lives in /workspace/CHEATSHEET.md
+            cheatsheet_text = (
+                "\n\n---\n"
+                "A task-authoring cheatsheet is available at "
+                "`/workspace/CHEATSHEET.md` with shortcuts and common pitfalls. "
+                "Read it early.\n"
+            )
+        else:
+            body = Path(cheatsheet_path).read_text().strip()
+            if body:
+                cheatsheet_text = f"\n\n---\n{body}\n"
+
     return (
-        f"{agents_context.strip()}{primer_text}\n\n"
+        f"{agents_context.strip()}{primer_text}{cheatsheet_text}\n\n"
         "---\n"
         "GEOS RAG instructions: Use the MCP tools named "
         "mcp__geos-rag__search_navigator, mcp__geos-rag__search_schema, and "
@@ -311,7 +410,16 @@ def build_system_prompt(agents_context: str, geos_primer_path: Path) -> tuple[st
         "read /workspace/GEOS_PRIMER.md; it is intentionally absent from task "
         "workspaces. Continue directly to task-specific GEOS RAG searches and "
         "XML authoring.\n"
-        "Use only real tool calls exposed by the runtime. Do not print XML-style "
+        + (
+            "A `memory_lookup(query, n=3)` MCP tool (under the `mcp__memory__` "
+            "prefix) is available. Early in the task, call `mcp__memory__memory_lookup` "
+            "with a short natural-language description of the task's physics to "
+            "retrieve 2-3 similar past successful tasks, including the /geos_lib XML "
+            "reference files they used and the RAG queries that worked for them. "
+            "Use those as starting anchors for your own RAG searches and Reads.\n"
+            if memory_enabled else ""
+        )
+        + "Use only real tool calls exposed by the runtime. Do not print XML-style "
         "<invoke> blocks, <parameter> blocks, DSML function-call blocks, or "
         "minimax:tool_call wrappers; those are text and will not execute. To "
         "create files, use the actual Write, Edit, or Bash tools exposed by the "
@@ -717,6 +825,7 @@ def write_claude_mcp_config(
     result_dir: Path,
     blocked_xml_filenames: list[str],
     blocked_rst_relpaths: list[str],
+    enable_memory: bool = False,
 ) -> Path:
     """Write the explicit MCP config Claude Code uses inside the container.
 
@@ -725,30 +834,43 @@ def write_claude_mcp_config(
     mode.  Passing an explicit --mcp-config keeps the RAG tools available without
     storing API secrets in the workspace file; secrets are supplied through the
     docker process environment.
+
+    If enable_memory=True, additionally register the memory_mcp server that
+    serves a frozen G-Memory-lite index from /plugins/repo3/memory_index.json.
     """
-    mcp_config_path = result_dir / CONTAINER_MCP_CONFIG_PATH.name
-    _safe_write_json(
-        mcp_config_path,
-        {
-            "mcpServers": {
-                "geos-rag": {
-                    "type": "stdio",
-                    "command": "uv",
-                    "args": [
-                        "run",
-                        "--script",
-                        str(CONTAINER_PLUGIN_DIR / "scripts" / "geos_rag_mcp.py"),
-                    ],
-                    "env": {
-                        "CLAUDE_PLUGIN_ROOT": str(CONTAINER_PLUGIN_DIR),
-                        "GEOS_VECTOR_DB_DIR": str(CONTAINER_VECTOR_DB_DIR),
-                        "EXCLUDED_GT_XML_FILENAMES": json.dumps(blocked_xml_filenames),
-                        "EXCLUDED_RST_PATHS": json.dumps(blocked_rst_relpaths),
-                    },
-                },
+    servers: dict[str, Any] = {
+        "geos-rag": {
+            "type": "stdio",
+            "command": "uv",
+            "args": [
+                "run",
+                "--script",
+                str(CONTAINER_PLUGIN_DIR / "scripts" / "geos_rag_mcp.py"),
+            ],
+            "env": {
+                "CLAUDE_PLUGIN_ROOT": str(CONTAINER_PLUGIN_DIR),
+                "GEOS_VECTOR_DB_DIR": str(CONTAINER_VECTOR_DB_DIR),
+                "EXCLUDED_GT_XML_FILENAMES": json.dumps(blocked_xml_filenames),
+                "EXCLUDED_RST_PATHS": json.dumps(blocked_rst_relpaths),
             },
         },
-    )
+    }
+    if enable_memory:
+        servers["memory"] = {
+            "type": "stdio",
+            "command": "uv",
+            "args": [
+                "run",
+                "--script",
+                str(CONTAINER_PLUGIN_DIR / "scripts" / "memory_mcp.py"),
+            ],
+            "env": {
+                "CLAUDE_PLUGIN_ROOT": str(CONTAINER_PLUGIN_DIR),
+                "MEMORY_INDEX_PATH": str(CONTAINER_PLUGIN_DIR / "memory_index.json"),
+            },
+        }
+    mcp_config_path = result_dir / CONTAINER_MCP_CONFIG_PATH.name
+    _safe_write_json(mcp_config_path, {"mcpServers": servers})
     return mcp_config_path
 
 
@@ -1155,10 +1277,23 @@ def run_task(
     resolved_geos_primer_path = (geos_primer_path or DEFAULT_GEOS_PRIMER_PATH).resolve()
     primer_workspace_path: Path | None = None
     remove_workspace_geos_primer(result_dir)
+    cheatsheet_path = agent.get("cheatsheet_path")
+    cheatsheet_in_workspace = bool(agent.get("cheatsheet_in_workspace", False))
     system_prompt, primer_in_system_prompt = build_system_prompt(
         agents_context,
         resolved_geos_primer_path,
+        cheatsheet_path=cheatsheet_path,
+        cheatsheet_in_workspace=cheatsheet_in_workspace,
+        memory_enabled=bool(agent.get("memory_enabled", False)),
     )
+    # If we're delivering the cheatsheet via the workspace (instead of system prompt),
+    # drop the file into the result_dir so Docker bind-mounts it as /workspace/CHEATSHEET.md.
+    if cheatsheet_in_workspace and cheatsheet_path is not None and Path(cheatsheet_path).exists():
+        ws_cs = result_dir / "CHEATSHEET.md"
+        try:
+            ws_cs.write_text(Path(cheatsheet_path).read_text())
+        except OSError as exc:
+            print(f"WARN: could not write workspace cheatsheet: {exc}")
     task_prompt = build_task_prompt(task_instructions)
     prompt = (
         task_prompt
@@ -1220,6 +1355,7 @@ def run_task(
                 result_dir=result_dir,
                 blocked_xml_filenames=blocked_xml_filenames,
                 blocked_rst_relpaths=blocked_rst_relpaths,
+                enable_memory=bool(agent.get("memory_enabled", False)),
             )
         else:
             plugin_dir = None
