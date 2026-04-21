@@ -59,7 +59,16 @@ _SCALAR_RE = re.compile(r"^[+-]?\d+(\.\d*)?([eE][+-]?\d+)?$")
 # XML loading with <Included> resolution
 # ============================================================
 
-def _resolve_included(root: ET.Element, base_dir: Path) -> ET.Element:
+def _resolve_included(
+    root: ET.Element,
+    base_dir: Path,
+    _ancestors: Optional[Set[Path]] = None,
+) -> ET.Element:
+    # _ancestors is the chain of resolved file paths currently being expanded.
+    # Skipping any candidate already in that chain breaks cycles from malformed
+    # agent output (self-include, mutual include) without crashing the scorer.
+    if _ancestors is None:
+        _ancestors = set()
     for included in list(root.findall(".//Included")):
         parent = _find_parent(root, included)
         if parent is None:
@@ -77,8 +86,15 @@ def _resolve_included(root: ET.Element, base_dir: Path) -> ET.Element:
             candidate = (base_dir / rel).resolve()
             if not candidate.exists():
                 continue
-            child_root = ET.parse(candidate).getroot()
-            child_root = _resolve_included(child_root, candidate.parent)
+            if candidate in _ancestors:
+                continue
+            try:
+                child_root = ET.parse(candidate).getroot()
+            except ET.ParseError:
+                continue
+            child_root = _resolve_included(
+                child_root, candidate.parent, _ancestors | {candidate}
+            )
             for elem in list(child_root):
                 parent.insert(insert_at, elem)
                 insert_at += 1
@@ -121,11 +137,11 @@ def load_and_resolve_dir(directory: Path) -> ET.Element:
 
     entries = [fp for fp in parsed if fp not in referenced]
     if len(entries) == 1:
-        return _resolve_included(parsed[entries[0]], entries[0].parent)
+        return _resolve_included(parsed[entries[0]], entries[0].parent, {entries[0]})
 
     merged = ET.Element("Problem")
     for file_path, root in parsed.items():
-        resolved = _resolve_included(root, file_path.parent)
+        resolved = _resolve_included(root, file_path.parent, {file_path})
         for child in list(resolved):
             merged.append(child)
     return merged
@@ -133,7 +149,7 @@ def load_and_resolve_dir(directory: Path) -> ET.Element:
 
 def load_and_resolve_file(xml_path: Path) -> ET.Element:
     root = ET.parse(xml_path).getroot()
-    return _resolve_included(root, xml_path.parent)
+    return _resolve_included(root, xml_path.parent, {xml_path.resolve()})
 
 
 # ============================================================
