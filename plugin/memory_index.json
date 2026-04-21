@@ -46,7 +46,8 @@
         "ElementRegions": 1.0,
         "Events": 1.0,
         "Functions": 1.0
-      }
+      },
+      "solver_family": "triaxialDriver"
     },
     {
       "task_id": "kgdToughnessDominated",
@@ -88,7 +89,8 @@
         "ElementRegions": 1.0,
         "FieldSpecifications": 1.0,
         "Mesh": 1.0
-      }
+      },
+      "solver_family": "hydraulicFracturing"
     },
     {
       "task_id": "triaxialDriverExample",
@@ -129,7 +131,8 @@
         "Constitutive": 1.0,
         "Events": 1.0,
         "Mesh": 1.0
-      }
+      },
+      "solver_family": "triaxialDriver"
     },
     {
       "task_id": "kgdViscosityDominated",
@@ -173,7 +176,8 @@
         "ElementRegions": 1.0,
         "Events": 1.0,
         "FieldSpecifications": 1.0
-      }
+      },
+      "solver_family": "hydraulicFracturing"
     },
     {
       "task_id": "pennyFracViscosityDominated",
@@ -216,7 +220,8 @@
         "ElementRegions": 1.0,
         "FieldSpecifications": 1.0,
         "NumericalMethods": 1.0
-      }
+      },
+      "solver_family": "hydraulicFracturing"
     },
     {
       "task_id": "AdvancedExampleCasedElasticWellboreImperfectInterfaces",
@@ -264,7 +269,8 @@
         "Functions": 1.0,
         "Geometry": 1.0,
         "Mesh": 1.0
-      }
+      },
+      "solver_family": "wellbore"
     },
     {
       "task_id": "ExampleKirschWellbore",
@@ -308,7 +314,8 @@
         "Constitutive": 1.0,
         "Mesh": 1.0,
         "NumericalMethods": 1.0
-      }
+      },
+      "solver_family": "wellbore"
     },
     {
       "task_id": "pennyFracToughnessDominated",
@@ -350,7 +357,8 @@
         "Constitutive": 1.0,
         "ElementRegions": 1.0,
         "NumericalMethods": 1.0
-      }
+      },
+      "solver_family": "hydraulicFracturing"
     },
     {
       "task_id": "AdvancedExampleCasedElasticWellbore",
@@ -399,7 +407,8 @@
         "Mesh": 1.0,
         "NumericalMethods": 1.0,
         "Outputs": 0.866
-      }
+      },
+      "solver_family": "wellbore"
     },
     {
       "task_id": "AdvancedWellboreExampleNonLinearThermalDiffusionTemperatureDependentVolumetricHeatCapacity",
@@ -443,7 +452,8 @@
         "Events": 1.0,
         "Mesh": 1.0,
         "NumericalMethods": 1.0
-      }
+      },
+      "solver_family": "singlePhaseFlow"
     },
     {
       "task_id": "TutorialDeadOilBottomLayersSPE10",
@@ -487,7 +497,8 @@
         "ElementRegions": 1.0,
         "Geometry": 1.0,
         "NumericalMethods": 1.0
-      }
+      },
+      "solver_family": "compositionalMultiphaseWell"
     },
     {
       "task_id": "TutorialDeadOilEgg",
@@ -537,7 +548,8 @@
         "ElementRegions": 1.0,
         "NumericalMethods": 1.0,
         "Constitutive": 0.942
-      }
+      },
+      "solver_family": "compositionalMultiphaseWell"
     },
     {
       "task_id": "relaxationTest",
@@ -584,7 +596,8 @@
         "Constitutive": 1.0,
         "ElementRegions": 1.0,
         "NumericalMethods": 1.0
-      }
+      },
+      "solver_family": "solidMechanics"
     },
     {
       "task_id": "AdvancedExampleDeviatedPoroElasticWellbore",
@@ -628,7 +641,8 @@
         "Mesh": 1.0,
         "NumericalMethods": 1.0,
         "Constitutive": 0.895
-      }
+      },
+      "solver_family": "wellbore"
     },
     {
       "task_id": "TutorialCO2FieldCase",
@@ -674,7 +688,8 @@
         "ElementRegions": 1.0,
         "NumericalMethods": 1.0,
         "FieldSpecifications": 0.923
-      }
+      },
+      "solver_family": "compositionalMultiphaseWell"
     },
     {
       "task_id": "faultVerification",
@@ -718,7 +733,8 @@
         "NumericalMethods": 1.0,
         "Outputs": 1.0,
         "Solvers": 0.873
-      }
+      },
+      "solver_family": "poromechanics"
     },
     {
       "task_id": "ExampleTFrac",
@@ -764,7 +780,8 @@
         "Constitutive": 1.0,
         "Mesh": 1.0,
         "ElementRegions": 0.772
-      }
+      },
+      "solver_family": "lagrangianContactMechanics"
     },
     {
       "task_id": "AdvancedExampleWellboreNonLinearThermalDiffusionTemperatureDependentSinglePhaseThermalConductivity",
@@ -808,7 +825,8 @@
         "Outputs": 0.965,
         "Mesh": 0.809,
         "FieldSpecifications": 0.802
-      }
+      },
+      "solver_family": "wellbore"
     }
   ]
 }

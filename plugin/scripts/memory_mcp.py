@@ -79,35 +79,64 @@ def _score(query_tokens: list[str], entry: dict[str, Any]) -> float:
 
 
 @app.tool()
-def memory_lookup(query: str, n: int = 3) -> dict[str, Any]:
-    """Retrieve up to n past task memories most similar to the given query.
+def memory_lookup(query: str, n: int = 3, min_score: float = 0.6) -> dict[str, Any]:
+    """Retrieve past task memories most similar to the given query, ONLY if a
+    confident match exists.
 
-    Each memory entry contains:
-      - task_id: the name of a past training task
-      - final_treesim: how well that run scored (0-1)
-      - reference_xmls: /geos_lib paths the past agent Read to succeed
-      - productive_rag_queries: RAG queries that worked on that task
-      - section_strengths: which XML sections the past run got strongest
+    IMPORTANT: This tool is a SAFETY NET, not a primary search tool. Use it
+    only after you have already issued 2-3 semantic RAG queries via
+    mcp__geos-rag__search_navigator / search_schema / search_technical and
+    have NOT yet found a clearly-matching reference XML. Calling this tool
+    early biases your exploration toward past tasks whose physics may not
+    match the current task.
+
+    The tool enforces a minimum confidence threshold (default 0.6). If no
+    past task matches the query above this threshold, you get a "no match"
+    response — that is the correct behavior; it means you should rely on
+    semantic RAG, not memory. Past attempts to weaken this threshold have
+    led to anchoring on wrong-physics-family priors (e.g., hydrofracture
+    examples returned for embedded-fracture tasks).
+
+    When you DO get matches, treat them as one possible reference, not a
+    final answer. Always verify the match's physics family (solver,
+    constitutive model, mesh type) actually matches your current task
+    before adapting its reference_xmls.
 
     Args:
-      query: a natural-language description of the current task's physics /
-        goal (e.g., "triaxial test with drucker prager plasticity" or
-        "hydraulic fracture with toughness-dominated propagation").
-      n: number of memories to return (max 5).
+      query: short natural-language description of the current task's physics
+        and goal. Be specific about solver family if known.
+      n: max number of memories to return (1..5).
+      min_score: minimum match-score threshold (default 0.6). Increase to
+        0.8 for high-confidence-only matches.
+
+    Returns:
+      Dict with `results` (possibly empty) and a `note` field. If no result
+      meets min_score, results is empty and note explains why.
     """
     n = max(1, min(n, 5))
     q_tokens = _tokenize(query)
     scored = [(s, e) for e in INDEX if (s := _score(q_tokens, e)) > 0]
     scored.sort(key=lambda x: -x[0])
-    top = scored[:n]
+    above = [(s, e) for s, e in scored if s >= min_score]
+    top = above[:n]
     if not top:
+        best_seen = scored[0][0] if scored else 0.0
         return {
             "query": query,
             "results": [],
-            "note": "No past tasks found matching this query. Try broader keywords.",
+            "note": (
+                f"No past task matched the query above threshold "
+                f"min_score={min_score} (best seen score: {best_seen:.3f}). "
+                "This means none of the {} past training tasks is a confident "
+                "match for the current task's physics. **Rely on semantic RAG "
+                "(mcp__geos-rag__search_*) to discover the right reference XML "
+                "from /geos_lib/inputFiles/ instead.**"
+            ).format(len(INDEX)),
         }
     return {
         "query": query,
+        "n_above_threshold": len(above),
+        "min_score_used": min_score,
         "results": [
             {
                 "task_id": e.get("task_id"),
@@ -117,6 +146,10 @@ def memory_lookup(query: str, n: int = 3) -> dict[str, Any]:
                 "productive_rag_queries": e.get("productive_rag_queries", [])[:4],
                 "section_strengths": e.get("section_strengths", {}),
                 "instructions_excerpt": (e.get("instructions_excerpt") or "")[:240],
+                "verify_physics_match": (
+                    "Before adapting these reference_xmls, verify the past "
+                    "task's solver family and mesh type match your current task."
+                ),
             }
             for s, e in top
         ],

@@ -89,6 +89,16 @@
   plugin rescues most (Sneddon -0.719, DPWellbore -0.687, Mandel
   -0.637). Filetree seems to distract agent from semantic RAG path.
   See XN-007.
+- **Memory failure mechanism characterized (XN-009).** All 6 augmentations
+  fire UPFRONT and disrupt the plugin's iterative semantic-discovery RAG
+  loop. Three distinct mechanisms: (1) cheatsheet anchoring — agent
+  pattern-matches on filenames; (2) filetree path hijacking — skips RAG;
+  (3) memory_lookup poisoning — wrong-physics priors returned with high
+  confidence (Sneddon→hydrofracture, Mandel→hydrofracture, DPWellbore→
+  triaxialDriver). Frozen memory built from 18 train tasks structurally
+  cannot help on test tasks whose physics family isn't represented in
+  train. Insight: **memory should constrain search space, not short-
+  circuit reasoning**; tested via E12 (gated memory, threshold + delay).
 - **Six convergent memory/augmentation negatives across channels.**
 
   | Attempt | Delta | Channel | Content |
