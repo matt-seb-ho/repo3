@@ -71,18 +71,70 @@ def evaluate_one(
     return result
 
 
+def summarize(results: list[dict]) -> dict:
+    """Compute scored-only and failures-as-zero aggregates.
+
+    Returns a dict with both views so callers can write it to JSON or print.
+    """
+    ok = [r for r in results if r["status"] == "success"]
+    bad = [r for r in results if r["status"] != "success"]
+    n_total = len(results)
+    n_scored = len(ok)
+
+    def _m(key: str) -> dict:
+        scored_vals = [r.get(key) for r in ok if r.get(key) is not None]
+        zeroed_vals = [
+            (r.get(key) if r["status"] == "success" and r.get(key) is not None else 0.0)
+            for r in results
+        ]
+        if not scored_vals:
+            return {
+                "scored_mean": None,
+                "scored_median": None,
+                "scored_n": 0,
+                "with_failures_as_zero_mean": (
+                    statistics.mean(zeroed_vals) if zeroed_vals else None
+                ),
+                "total_n": n_total,
+            }
+        return {
+            "scored_mean": statistics.mean(scored_vals),
+            "scored_median": statistics.median(scored_vals),
+            "scored_min": min(scored_vals),
+            "scored_max": max(scored_vals),
+            "scored_n": len(scored_vals),
+            "with_failures_as_zero_mean": statistics.mean(zeroed_vals),
+            "total_n": n_total,
+        }
+
+    return {
+        "n_total": n_total,
+        "n_scored": n_scored,
+        "n_failed": n_total - n_scored,
+        "failed_names": [r["experiment"] for r in bad],
+        "overall_score": _m("overall_score"),
+        "treesim": _m("treesim"),
+    }
+
+
 def print_summary(results: list[dict]) -> None:
     ok = [r for r in results if r["status"] == "success"]
     bad = [r for r in results if r["status"] != "success"]
+    agg = summarize(results)
     print(f"\n{'=' * 60}")
-    print(f"  Batch evaluation: {len(ok)}/{len(results)} succeeded")
+    print(f"  Batch evaluation: {agg['n_scored']}/{agg['n_total']} succeeded")
     print(f"{'=' * 60}")
     if ok:
+        o = agg["overall_score"]
+        t = agg["treesim"]
+        print(f"  Scored-only     overall_score mean: {o['scored_mean']:.3f}  "
+              f"(median {o['scored_median']:.3f}, range {o['scored_min']:.2f}-{o['scored_max']:.2f})")
+        print(f"  Failures-as-0   overall_score mean: {o['with_failures_as_zero_mean']:.3f}")
+        if t["scored_mean"] is not None:
+            print(f"  Scored-only     treesim       mean: {t['scored_mean']:.3f}")
+            print(f"  Failures-as-0   treesim       mean: {t['with_failures_as_zero_mean']:.3f}")
         scores = [r.get("overall_score", 0.0) for r in ok]
-        print(f"  Mean  : {statistics.mean(scores):.2f}")
-        print(f"  Median: {statistics.median(scores):.2f}")
-        print(f"  Range : {min(scores):.2f} – {max(scores):.2f}")
-        print(f"  Pass ≥7: {sum(1 for s in scores if s >= 7.0)}/{len(scores)}")
+        print(f"  Pass ≥7: {sum(1 for s in scores if s >= 7.0)}/{len(scores)} (of scored)")
         print()
         for r in sorted(ok, key=lambda x: x.get("overall_score", 0.0), reverse=True):
             s = r.get("overall_score", 0.0)
@@ -90,7 +142,7 @@ def print_summary(results: list[dict]) -> None:
             ts_str = f"  treesim={ts:.3f}" if ts is not None else ""
             print(f"  {s:5.2f}/10  {r['experiment']}{ts_str}")
     if bad:
-        print("\n  Failed:")
+        print(f"\n  Failed ({len(bad)}) — counted as 0 in failures-as-zero mean:")
         for r in bad:
             print(f"    {r['experiment']}: {r.get('error')}")
 
@@ -145,6 +197,7 @@ def main() -> int:
             "experiments_dir": str(args.experiments_dir),
             "ground_truth_dir": str(args.ground_truth_dir),
             "metric": "lxml_xml_eval" if args.legacy else "judge_geos",
+            "summary": summarize(results),
             "results": results,
         }, indent=2, default=str))
         print(f"\nWrote {args.output}")

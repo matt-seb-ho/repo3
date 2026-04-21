@@ -151,6 +151,21 @@ This corrects my earlier (wrong) framing that "the stop reason is hidden in reda
 - Not anchoring (agent's last thinking stated forward intent)
 - Shows up on **both deepseek** (E04, ~3-5 of 17 tasks when cheatsheet in system prompt) **and minimax** (E17, 4 of 17 tasks even without cheatsheet)
 
+**Mechanism (identified 2026-04-21 — see docs/XN-010):** after a
+`tool_result` the OpenRouter → minimax call occasionally returns an empty
+completion (no text, no thinking, no tool_use). Claude Code's agent loop
+ends when the latest message has no `tool_use`, so an empty completion is
+faithfully turned into `stop_reason=end_turn`. Not a max-tokens issue
+(observed at 386 output_tokens, cap 32k). Not a context-window issue
+(28k input, 200k window). Not an API error.
+
+**Fix applied 2026-04-21:** new plugin Stop hook
+(`plugin/hooks/verify_outputs.py`) blocks `end_turn` when
+`/workspace/inputs/` has no `.xml` files or any XML fails to parse, feeding
+a concrete complaint back to the agent. Forces a second chance in the
+same context (preserves tool-call history, unlike the runner-level retry
+which restarts from scratch).
+
 **Hypotheses (not tested):**
 1. OpenRouter adapter drops final streaming content under certain conditions
 2. OSS model produces empty completion when context reaches certain shape
@@ -195,9 +210,10 @@ This corrects my earlier (wrong) framing that "the stop reason is hidden in reda
 
 This happens occasionally — also observed in E01 no-plug Sneddon (per XN-008) and E03 plug Sneddon when given ambiguous multi-option tasks.
 
-**Workaround options:**
-- System-prompt instruction: "You are running non-interactively; never call AskUserQuestion. Decide for yourself."
-- Remove AskUserQuestion from the agent's tool list
+**Fix applied 2026-04-21:** `AskUserQuestion` added to
+`NATIVE_CLAUDE_DISALLOWED_TOOLS` in `scripts/run_experiment.py`. Closes this
+failure mode for all future runs. See XN-010 for mechanism writeup and
+XN-011 for the failures-as-zero metric reframe.
 
 ### Failure mode E: MCP preflight timeouts (rare)
 
