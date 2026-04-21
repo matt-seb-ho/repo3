@@ -1,7 +1,7 @@
 {
   "name": "repo3-plugin",
-  "version": "0.1.0",
-  "description": "Starter Claude Code plugin scaffold with a maintainable skill structure.",
+  "version": "0.2.0",
+  "description": "GEOS-authoring plugin: geos-rag MCP + XML self-verification Stop hook.",
   "author": {
     "name": "Brian Liu"
   },

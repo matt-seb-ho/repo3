@@ -122,7 +122,13 @@ CONTAINER_GEOS_PRIMER_PATH = Path("/workspace/GEOS_PRIMER.md")
 RAG_TOOL_NAMES = {"search_navigator", "search_schema", "search_technical"}
 PSEUDO_TOOL_RE = re.compile(r"invoke\s+name=[\"']([^\"']+)[\"']", re.IGNORECASE)
 NATIVE_CLAUDE_TOOLS = "default"
-NATIVE_CLAUDE_DISALLOWED_TOOLS = "Skill"
+# Each entry is passed as its own --disallowedTools argument. Skill is blocked
+# because the repo3-plugin:geos-rag skill wrapper breaks non-Anthropic providers
+# (the RAG instructions are injected directly into the system prompt instead).
+# AskUserQuestion is blocked because this harness runs Claude non-interactively
+# via `claude -p`; any AskUserQuestion call stalls the turn and is a known
+# cause of the premature-end_turn failure mode (see docs/XN-010).
+NATIVE_CLAUDE_DISALLOWED_TOOLS = ("Skill", "AskUserQuestion")
 STOP_REQUESTED = threading.Event()
 ACTIVE_PROCESS_LOCK = threading.Lock()
 ACTIVE_PROCESSES: dict[int, subprocess.Popen[str]] = {}
@@ -227,6 +233,20 @@ AGENTS: dict[str, dict] = {
         "requires_rag": True,
         "plugin_enabled": True,
         "memory_enabled": True,
+    },
+    # E13: Same memory_mcp tool available, but NO system-prompt instruction
+    # about it. Agent discovers memory_lookup from the tool list / docstring
+    # alone. Tests whether the memory *instruction* itself was anchoring
+    # behavior (E12 still hurt even though threshold blocked bad matches).
+    "claude_code_repo3_plugin_gmemsilent": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_gmemsilent",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "memory_enabled": True,
+        "memory_prompt_hint": False,
     },
     # Ablation: same container, same primer, same prompt — but no repo3
     # plugin, no RAG tools, no vector DB. Baseline for measuring the plugin's
@@ -365,6 +385,7 @@ def build_system_prompt(
     cheatsheet_path: Path | None = None,
     cheatsheet_in_workspace: bool = False,
     memory_enabled: bool = False,
+    memory_prompt_hint: bool = True,
 ) -> tuple[str, bool]:
     primer_text = ""
     primer_inlined = False
@@ -426,7 +447,7 @@ def build_system_prompt(
             "adapting its reference_xmls. Past memory tools without this gate "
             "anchored agents to wrong-physics-family priors and degraded "
             "performance — do not repeat that.\n"
-            if memory_enabled else ""
+            if (memory_enabled and memory_prompt_hint) else ""
         )
         + "Use only real tool calls exposed by the runtime. Do not print XML-style "
         "<invoke> blocks, <parameter> blocks, DSML function-call blocks, or "
@@ -985,6 +1006,11 @@ def build_claude_native_command(
         "-e", "ANTHROPIC_API_KEY",
         "-e", "OPENROUTER_API_KEY",
         "-e", "OPENAI_API_KEY",
+        # Forwards for plugin/hooks/verify_outputs.py knobs. Absent vars
+        # are fine — hook has sane defaults.
+        "-e", "GEOS_HOOK_DISABLE",
+        "-e", "GEOS_HOOK_MAX_RETRIES",
+        "-e", "GEOS_HOOK_SELF_REFLECT",
     ]
     if enable_plugin:
         cmd += [
@@ -1000,8 +1026,9 @@ def build_claude_native_command(
         "--model", model,
         "--append-system-prompt", system_prompt,
         "--tools", NATIVE_CLAUDE_TOOLS,
-        "--disallowedTools", NATIVE_CLAUDE_DISALLOWED_TOOLS,
     ]
+    for disallowed in NATIVE_CLAUDE_DISALLOWED_TOOLS:
+        cmd += ["--disallowedTools", disallowed]
     if enable_plugin:
         cmd += [
             f"--mcp-config={CONTAINER_MCP_CONFIG_PATH}",
@@ -1294,6 +1321,7 @@ def run_task(
         cheatsheet_path=cheatsheet_path,
         cheatsheet_in_workspace=cheatsheet_in_workspace,
         memory_enabled=bool(agent.get("memory_enabled", False)),
+        memory_prompt_hint=bool(agent.get("memory_prompt_hint", True)),
     )
     # If we're delivering the cheatsheet via the workspace (instead of system prompt),
     # drop the file into the result_dir so Docker bind-mounts it as /workspace/CHEATSHEET.md.

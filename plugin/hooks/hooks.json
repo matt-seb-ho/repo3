@@ -1,0 +1,12 @@
+{
+  "description": "GEOS XML self-verification Stop hook. Blocks end_turn when /workspace/inputs/ is missing XML files or contains malformed XML, giving the agent a forced second chance with a concrete complaint. Mitigates the minimax-on-OpenRouter empty-completion failure (see docs/XN-010).",
+  "hooks": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/verify_outputs.py",
+        "timeout": 30
+      }
+    ]
+  }
+}
