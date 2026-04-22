@@ -28,6 +28,7 @@ import json
 import os
 import sys
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -38,8 +39,46 @@ def _envflag(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _allow_stop(extra: dict | None = None) -> None:
+def _event_log_path(inputs_dir: Path) -> Path:
+    """Location of the hook event log — one JSONL line per hook invocation."""
+    override = os.environ.get("GEOS_HOOK_EVENTS_PATH")
+    if override:
+        return Path(override)
+    parent = inputs_dir.parent if inputs_dir.parent.exists() else Path("/tmp")
+    return parent / ".verify_hook_events.jsonl"
+
+
+def _log_event(
+    inputs_dir: Path,
+    decision: str,
+    reason_category: str,
+    retries_so_far: int,
+    detail: str = "",
+) -> None:
+    path = _event_log_path(inputs_dir)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "decision": decision,
+        "reason_category": reason_category,
+        "retries_so_far": retries_so_far,
+        "detail": detail,
+    }
+    try:
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass
+
+
+def _allow_stop(
+    inputs_dir: Path | None = None,
+    reason_category: str = "allow",
+    retries_so_far: int = 0,
+    extra: dict | None = None,
+) -> None:
     """Emit a non-blocking result and exit 0."""
+    if inputs_dir is not None:
+        _log_event(inputs_dir, "allow", reason_category, retries_so_far)
     payload: dict = {"continue": True, "suppressOutput": True}
     if extra:
         payload.update(extra)
@@ -48,15 +87,19 @@ def _allow_stop(extra: dict | None = None) -> None:
     sys.exit(0)
 
 
-def _block(reason: str) -> None:
-    payload = {
-        "decision": "block",
-        "reason": reason,
-        "hookSpecificOutput": {
-            "hookEventName": "Stop",
-            "additionalContext": reason,
-        },
-    }
+def _block(
+    reason: str,
+    inputs_dir: Path,
+    reason_category: str,
+    retries_so_far: int,
+    detail: str = "",
+) -> None:
+    _log_event(inputs_dir, "block", reason_category, retries_so_far, detail)
+    # Stop hook schema: {decision: "block", reason: "..."}.
+    # Earlier versions of this file included a hookSpecificOutput block which
+    # triggered Claude Code "stop-hook-error" notifications — that field is
+    # for UserPromptSubmit-style hooks, not Stop hooks. Keep this minimal.
+    payload = {"decision": "block", "reason": reason}
     json.dump(payload, sys.stdout)
     sys.stdout.write("\n")
     sys.exit(0)
@@ -108,47 +151,67 @@ def _first_parse_error(paths: list[Path]) -> tuple[Path, str] | None:
 
 
 def main() -> None:
+    inputs_dir = _inputs_dir()
+
     if _envflag("GEOS_HOOK_DISABLE"):
-        _allow_stop()
+        _allow_stop(inputs_dir, reason_category="disabled")
 
     try:
         payload = json.load(sys.stdin)
     except json.JSONDecodeError:
-        # If we can't even parse the hook input, don't block — fail open.
-        _allow_stop()
+        _allow_stop(inputs_dir, reason_category="bad_hook_input")
 
-    if payload.get("stop_hook_active"):
-        _allow_stop()
+    # Note: we do NOT early-return on payload["stop_hook_active"]. The
+    # max_retries counter is the loop-protection mechanism. Early-return
+    # would prevent us from catching malformed XML written by the model
+    # after a no_xml block — the model can produce a parseable end_turn
+    # with broken XML, and we want the hook to catch that too.
+    stop_active = bool(payload.get("stop_hook_active"))
 
-    inputs_dir = _inputs_dir()
     counter = _retry_counter(inputs_dir)
     max_retries = int(os.environ.get("GEOS_HOOK_MAX_RETRIES", "2") or 2)
 
     xml_files = _list_xml(inputs_dir)
 
     if not xml_files:
-        if _bump_counter(counter) > max_retries:
-            _allow_stop()
+        retries = _bump_counter(counter)
+        if retries > max_retries:
+            _allow_stop(
+                inputs_dir,
+                reason_category="no_xml_max_retries",
+                retries_so_far=retries,
+            )
         _block(
             "Stop blocked by verify_outputs hook: no .xml files found under "
             f"{inputs_dir}. This is a required output of the task. Produce the "
             "requested GEOS XML files now using the Write tool (write under "
-            f"{inputs_dir}/) and then end your turn."
+            f"{inputs_dir}/) and then end your turn.",
+            inputs_dir=inputs_dir,
+            reason_category="no_xml",
+            retries_so_far=retries,
         )
 
     parse_err = _first_parse_error(xml_files)
     if parse_err is not None:
         path, detail = parse_err
-        if _bump_counter(counter) > max_retries:
-            _allow_stop()
+        retries = _bump_counter(counter)
+        if retries > max_retries:
+            _allow_stop(
+                inputs_dir,
+                reason_category="parse_error_max_retries",
+                retries_so_far=retries,
+            )
         rel = path.relative_to(inputs_dir) if path.is_relative_to(inputs_dir) else path
         _block(
             f"Stop blocked by verify_outputs hook: XML parse error in {rel}: "
-            f"{detail}. Open the file, fix the syntax, then end your turn."
+            f"{detail}. Open the file, fix the syntax, then end your turn.",
+            inputs_dir=inputs_dir,
+            reason_category="parse_error",
+            retries_so_far=retries,
+            detail=f"{rel}: {detail}",
         )
 
     if _envflag("GEOS_HOOK_SELF_REFLECT"):
-        # One-shot reflection block: only fire once per task to avoid loops.
         flag = counter.parent / ".verify_reflected"
         if not flag.exists():
             try:
@@ -168,10 +231,13 @@ def main() -> None:
                 "same file; (c) benchmark/smoke variants import the base via "
                 "<Included>. Fix any issues you find, then end your turn. "
                 "If everything already looks correct, just end your turn — "
-                "this reflection will not repeat."
+                "this reflection will not repeat.",
+                inputs_dir=inputs_dir,
+                reason_category="self_reflect",
+                retries_so_far=0,
             )
 
-    _allow_stop()
+    _allow_stop(inputs_dir, reason_category="xml_clean")
 
 
 if __name__ == "__main__":

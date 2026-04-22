@@ -417,3 +417,617 @@ tasks, which is a direction worth investigating.
 -> DAG: E11 negative/discard
 -> Evidence: misc/e11_vs_e03_test17.txt, misc/gmem_run1.log, plugin/scripts/memory_mcp.py, plugin/memory_index.json
 -> Decision: memory experiments paused for this sprint. Full stack (plugin+primer) is stable; augmentations break rescue. Advisor report should frame as: 6 convergent negatives characterizing a fragility pattern, not a single failure.
+
+---
+
+<a id="LOG-2026-04-21-1"></a>
+### 2026-04-21 — Memory failure mechanism characterized; E12 gated-memory launched
+
+User asked for deeper analysis on WHY memory attempts hurt. Two
+subagents dispatched:
+
+**XN-009 (trajectory analysis subagent)** — Read actual events.jsonl
+for Sneddon/Mandel/DPWellbore across plugin-only (E03) and all 5
+memory variants (E04/E05/E07/E09/E11). Three distinct failure
+mechanisms identified:
+1. **Cheatsheet anchoring** (E04, E05): agent pattern-matches on
+   filenames and reads /workspace/inputs/ (its own outputs) instead
+   of /geos_lib references.
+2. **Filetree path hijacking** (E07): agent bypasses semantic RAG
+   entirely, reads paths blindly without reasoning about solver family.
+3. **Memory lookup poisoning** (E11): wrong-physics priors returned
+   with high confidence. Sneddon query → hydrofracture. Mandel query
+   → hydrofracture. DPWellbore query → triaxialDriver (right solver
+   family, wrong geometry).
+
+Common cause: ALL augmentations fire UPFRONT as warm-start, disrupting
+the plugin's iterative semantic-discovery RAG loop (characterized in
+XN-008) that enables catastrophic-failure rescue on these 3 tasks.
+
+**LN-001 (literature subagent)** — Surveyed test-time memory
+literature. Most relevant precedents: Min et al. 2022 (format >
+content), Levy et al. 2023 (clustered demonstrations hurt OOD),
+Reflexion (on-policy same-task retry). Important counter-evidence:
+literature does NOT support the strong "memory will help" claim for
+heterogeneous-task agentic settings with strong base RAG + primer.
+No paper reports a memory gain comparable to our +0.178 plugin gain.
+Valyu API key not configured this session — used training-cutoff
+knowledge + cloned DC repo + geos_agent memory modules.
+
+**E12 launched (gated memory — threshold + delay-trigger):**
+- `memory_lookup` enforces min_score=0.6 (was unthresholded), returns
+  "no match — use RAG" fallback below threshold.
+- System-prompt instruction reframes memory as SAFETY NET, not
+  primary search. Warns about past-task anchoring.
+- Pre-check on the 3 problem queries: Sneddon (0.41) and Mandel
+  (0.49) now get fallback. DPWellbore (0.97 on off-domain
+  triaxialDriver) still bypasses → known E12 limitation → motivates
+  E13 physics-family filtering.
+- solver_family field added to memory_index.json (prerequisite for
+  E13).
+
+Also did not run /adversarial-review — codex CLI not available
+locally (same as last session). Reviewer RN-001 was same-model; no
+different-model adversarial gate this session.
+
+-> DAG: E12 exploring (memory_mcp behavior + system-prompt gated)
+-> Evidence: docs/XN-009_memory-failure-trajectory-analysis.md, docs/LN-001_memory-test-time-literature.md
+-> Decision: test threshold+delay fix first; if partial success, add physics-family filter as E13. If E12 full negative, pivot to Reflexion-style same-task retry or DC-RS (per LN-001 recommendation).
+
+---
+
+<a id="LOG-2026-04-21-2"></a>
+### 2026-04-21 — E12 negative (-0.186); E13 silent-memory launched
+
+**E12 (gated memory: threshold=0.6 + delay-trigger instruction):**
+Paired delta -0.186 vs plugin-only on 16 scored tasks (Sneddon
+failed_no_outputs and was excluded). Marginal improvement over
+E11's -0.192. **Threshold + delay alone is insufficient.**
+
+Wins (4): pknViscosityDominated +0.221 (biggest memory win to date),
+ViscoDruckerPrager +0.053, DruckerPrager +0.031, buckleyLeverett +0.055.
+These are tasks where train coverage matches and memory's gating
+worked correctly.
+
+Losses (12): Mandel -0.581, DPWellbore -0.687, DeviatedElastic -0.636,
+TutorialPoroelasticity -0.348, ModifiedCamClay -0.332, plus smaller.
+Rescue-task regressions persist.
+
+**Critical observation:** for most tasks (15/17) the agent did NOT
+call memory_lookup at all (mem=0). The threshold-correctly-suppressed
+queries (Sneddon, Mandel) still failed. This means the memory
+*instruction* (375 tokens of system prompt) is itself anchoring
+agent behavior, even when the tool isn't called.
+
+**Sneddon E12 trajectory inspected:** agent did 3 RAG queries,
+explored efemFractureMechanics directory, found correct files...
+then called AskUserQuestion("which solver configuration?") and
+stopped at end_turn with NO XML written. NEW failure mode — not
+redacted_thinking, but defer-to-user. The memory instruction's
+mention of "verify solver family" plausibly biased the agent into
+treating solver choice as user-input territory.
+
+**E13 launched (silent memory):** same threshold-gated memory_mcp,
+but `memory_prompt_hint=False` drops the entire 924-char system-
+prompt block about memory. Agent discovers memory_lookup only via
+the MCP tool list and the tool's own docstring. Tests whether the
+instruction itself was the anchor (vs. the tool's mere existence
+in the tool list).
+
+Pre-registered: if E13 paired delta is closer to 0 than E12's -0.186,
+instruction-anchoring is confirmed as the dominant remaining
+mechanism. If E13 is similar to E12, the issue is the tool's
+existence in the tool list (or the docstring), not the prompt.
+
+-> DAG: E12 negative/discard, E13 exploring
+-> Evidence: misc/e12_vs_e03_test17.txt
+-> Decision: drop the system-prompt instruction; test memory-via-tool-discovery only.
+
+---
+
+<a id="LOG-2026-04-21-3"></a>
+### 2026-04-21 — MAJOR REFRAMING: memory negatives were largely seed variance
+
+**E13 (silent memory):** paired -0.180. Memory tool present but agent
+never called it (mem=0 on all 17). Same magnitude as E11/E12. Pattern
+suggested either MCP-tool presence affects behavior or seed variance.
+
+**E14 (PLAIN PLUGIN seed-2, variance anchor):** paired delta -0.215
+vs E03. Same plugin, same model, same tasks — fresh run today scored
+0.616 vs E03's 0.831. Catastrophic regressions on the SAME 3 rescue
+tasks (Sneddon -0.735, DPWellbore -0.701, Mandel -0.610).
+
+**The convergent pattern across all reruns:**
+
+| Run | Sneddon | Mandel | DPWell | mean(17) |
+|---|---:|---:|---:|---:|
+| E03 plugin seed 1 | 0.804 | 0.948 | 0.992 | 0.831 |
+| E11 plugin+gmem | 0.088 | 0.279 | 0.939 | 0.638 |
+| E12 plugin+gmem-gated | (fail) | 0.367 | 0.305 | 0.646 |
+| E13 plugin+gmem-silent | 0.432 | 0.290 | 0.304 | 0.651 |
+| **E14 PLAIN PLUGIN seed 2** | **0.069** | **0.338** | **0.291** | **0.616** |
+
+All 4 reruns cluster at 0.62-0.65 mean with similar per-task pattern.
+**The 'memory hurts' deltas of -0.18 to -0.32 (E04-E13) appear to be
+substantially or entirely seed variance against an outlier baseline.**
+E03 was a single lucky seed where the agent happened to discover the
+right reference XMLs for Sneddon/Mandel/DPWellbore. Cross-seed
+variance on these specific tasks is huge (~0.7 swing per task).
+
+This refames everything:
+- The "plugin +0.178 over no-plugin" headline is shaky; needs
+  multi-seed verification.
+- Memory variants weren't actually hurting — they were being compared
+  to a lucky baseline.
+- The rescue mechanism on Sneddon/DPWellbore/Mandel is itself fragile;
+  plugin only "rescues" them sometimes.
+- pkn improved consistently across all variants AND in plain-plugin
+  rerun — that improvement is real (within noise) but NOT memory-
+  specific.
+
+**E15 launched:** plain no-plugin seed 2 on 17 test tasks. If
+no-plugin also has ±0.2 variance, the +0.178 gain claim collapses.
+If no-plugin variance is small, plugin's lucky-seed-only rescue is
+informative.
+
+This is good news for memory — none of the variants is actually bad.
+But it's BAD news for the plugin headline claim. Need multi-seed
+analysis end-to-end before any paper claim.
+
+-> DAG: E13 negative/discard, E14 keep (variance anchor), E15 exploring
+-> Evidence: misc/e13_vs_e03_test17.txt, misc/e14_vs_e03_test17.txt
+-> Decision: pivot to multi-seed analysis. All prior single-seed comparisons need re-interpretation. Hub State of Knowledge needs major update once E15 lands.
+
+---
+
+<a id="LOG-2026-04-21-7"></a>
+### 2026-04-21 (late evening) — E20 complete; hook-rescue claim NOT supported
+
+E20 (48 runs) finished 12:45 UTC. See docs/XN-012_hook-ablation.md for
+full writeup. Headline:
+
+- **0 `failed_no_outputs` in any cell's final status** across 48 runs.
+  E17's 4/17 rate on the same 4 tasks at a single seed did not
+  reproduce — consistent with known high cross-seed variance.
+- **Mean fa0 TreeSim:** C0 0.643, C1 0.530, C2 0.595, C4 0.557. Hook
+  trends negative (Δ −0.112 vs C0, p≈0.31 at n=12).
+- **Hook DID rescue 2 wrong-path-write failures** (1 inline C1; 1 after
+  retry C4) but rescued XML scored low — rescue trades "no XML" for
+  "low-quality XML".
+- **Dominant failure mode = timeout on ExampleThermalLeakyWell** (7/8
+  non-successes), which the hook cannot rescue (fires on Stop, not
+  docker kill).
+
+Decision per D-004 branch 4: do NOT expand to full 17-task factorial.
+Hook ships as defense-in-depth; no paper claim for hook-rescue.
+
+Validated as side effect: hook infrastructure works correctly end-to-end
+after two bug fixes (schema + `--plugin-dir` / `--settings` routing) and
+one mid-campaign patch (`stop_hook_active` early-return removed).
+
+-> DAG: E20 → negative/discard
+-> Evidence: docs/XN-012_hook-ablation.md, misc/e20_summary.json,
+   data/eval/results/e20/
+-> Decision: stop E20 line; reallocate to fallback priorities.
+
+---
+
+<a id="LOG-2026-04-21-6"></a>
+### 2026-04-21 (mid-campaign) — Hook bug #3 caught in run1 data; fixed for run2/run3
+
+While watching E20 run1 score, caught C1 ExampleThermalLeakyWell's
+failure: hook blocked (no_xml), agent wrote to inputs/, BUT the XML was
+malformed (`<?xml version1.0 encoding=UTF-8?>` — missing `=` and quotes).
+The hook's next Stop event should have caught the parse error but didn't,
+because the hook early-returned on `payload["stop_hook_active"] == True`.
+That field is Claude Code's "you're in a re-entry chain" signal, and my
+`_block` emit was unconditionally short-circuiting on it.
+
+Fix: removed the early-return. Loop protection is now solely via the
+`max_retries` counter (default 2). Hook now catches malformed XML on
+re-entry instead of letting it slip through.
+
+Tradeoff: run1 data (C1/C4) uses the old hook (one chance to fix XML
+content). Runs 2+3 use the new hook (up to max_retries chances).
+Not restarting run1 — the change is strictly more aggressive at rescue,
+so any C1/C4 gains in runs 2+3 over run1 may partly reflect the hook
+update, not just seed variance. Will note in XN-012 per-run breakdown.
+
+-> DAG: E20 (still exploring)
+-> Evidence: plugin/hooks/verify_outputs.py diff, data/eval/.../e20_run1/ExampleThermalLeakyWell/inputs/thermalLeakyWell_base.xml
+-> Decision: proceed with run2/run3; call out hook-code drift in write-up.
+
+---
+
+<a id="LOG-2026-04-21-5"></a>
+### 2026-04-21 (evening) — Handoff integrated; E20 hook-ablation launched; two hook-load bugs found
+
+The user started a prior Claude Code session outside this directory so the
+copilot's skills/hooks were not active. That session produced
+`docs/SESSION_HANDOFF_2026-04-21_end-turn-debug.md` documenting the
+`failed_no_outputs` failure mode (XN-010 mechanism: minimax/OpenRouter
+returns an empty completion after a tool_result, harness maps that to
+`stop_reason=end_turn`), committed a plugin Stop hook
+(`plugin/hooks/verify_outputs.py`), and proposed an ablation (§5) to
+isolate hook effect from tool-list-shape effect. They did not launch it.
+
+This session (correct cwd, hooks active):
+
+**Two critical bugs found that invalidate the prior session's "ready to
+run" framing:**
+1. `plugin/hooks/hooks.json` had the wrong schema
+   (`Stop: [{type,command}]` instead of
+   `Stop: [{matcher, hooks: [{type,command}]}]`). `claude plugins list`
+   reported load failure with explicit zod error. Hook never registered.
+2. `scripts/run_experiment.py build_claude_native_command` did not pass
+   `--plugin-dir`. Without that flag, plugin isn't loaded even with
+   bind-mount. The hook never ran in any prior experiment.
+
+**Design-review finding (RN-002, experiment-designer).** Loading the plugin
+via `--plugin-dir` would surface its `geos-rag` skill in the tool list,
+confounding hook effect with tool-list-shape effect (the very effect C2
+is meant to isolate). Fixed by routing hooks through `--settings` instead
+of `--plugin-dir`: per-task `claude_settings.json` written by the runner,
+containing only the Stop hook command. Tool list stays identical to
+E17/E18 across all cells.
+
+**Adversarial review gate.** Codex CLI unavailable locally (same
+constraint as D-003). Logged as D-005 with mitigation justifications
+(pre-registered decision rule, failures-as-zero primary metric,
+hook-event log fires on all code paths including disabled, designer
+same-model review already applied). Will not launch full 17-task
+factorial without adversarial review if codex becomes available.
+
+**E20 design (D-004).** 4 E17 failure tasks ×
+3 independent runs × 4 cells:
+- C0 `claude_code_repo3_plugin_nohook`: hook OFF, no extra tool
+- C1 `claude_code_repo3_plugin`: hook ON, no extra tool
+- C2 `claude_code_repo3_plugin_noop_nohook`: hook OFF, noop MCP tool
+- C4 `claude_code_repo3_plugin_noop`: hook ON, noop MCP tool
+
+48 runs total. ~90 min wall, ~$15. Pre-registered decision rule in D-004.
+
+**Instrumentation.** `verify_outputs.py` now emits JSONL
+`.verify_hook_events.jsonl` on every invocation with reason_category
+(block variants + allow variants including `disabled`); fires in C0/C2
+even when the hook is a no-op so we can prove code-path parity. New
+`plugin/scripts/noop_mcp.py` exposes a single `noop(s)` tool with a
+docstring that says "do not call, no info" — isolates the tool-list-shape
+effect.
+
+**Smoketest (1 task × 3 cells; C4 deferred):** verified end-to-end:
+- C0: settings={}, mcp=[geos-rag]
+- C1: settings=hook, mcp=[geos-rag]
+- C2: settings={}, mcp=[geos-rag, noop]  (noop connected)
+All 3 cells ran correctly.
+
+-> DAG: I12 (hook rescue), I13 (tool-list confound), E19 (discarded —
+   never ran), E20 (exploring — running now)
+-> Evidence: decisions/D-004, D-005; docs/XN-010; docs/SESSION_HANDOFF
+   _2026-04-21_end-turn-debug.md
+-> Decision: launch E20 narrow; do NOT expand to full 17-task factorial
+   without adversarial review + narrow-pass signal.
+
+---
+
+<a id="LOG-2026-04-21-4"></a>
+### 2026-04-21 — MAJOR BREAKTHROUGH: memory works on canonical specs
+
+Two findings this session that fundamentally reshape the project:
+
+**Finding 1: Canonical spec mismatch was the primary source of
+cross-condition variance.** Brian (collaborator) used
+`experiments_test36_template` (v2 specs). I used `experiments` (v1).
+Task instructions DIFFER between the two directories for every task.
+This contaminated nearly every comparison we'd done.
+
+**Finding 2: On canonical (v2) specs with minimax, memory HELPS.**
+
+Canonical sweep results (same seed, same v2 specs, minimax):
+- E16 no-plug+mm+v2: 0.566 mean (12 scored, 5 scoring errors)
+- E17 plain plug+mm+v2 seed 2: 0.575 mean (13 scored, 4 failed_no_outputs)
+- **E18 gmem-silent+mm+v2: 0.725 mean (17/17 scored, 0 failures)**
+
+Paired deltas (matched seed, matched specs):
+- E18 (mem+plug) vs E16 (no-plug): **+0.117**, 8/4 wins
+- **E18 (mem+plug) vs E17 (plain plug): +0.094, 9/4 wins**
+- E17 (plain plug) vs E16 (no-plug): +0.055, 6/4 wins
+
+**So the full stack is: memory+plug (+0.15 over no-plug) > plain plug
+(+0.055 over no-plug) > no-plug.** And memory+plug also prevents the
+unexpected minimax plain-plug failure mode (E17 had 4 failed_no_outputs;
+E18 had 0).
+
+Biggest memory-over-plain-plug wins: IsothermalLeakyWell +0.511,
+CasedContactThermo +0.507, ModifiedCamClay +0.424,
+ThermoporoelasticConsolidation +0.298.
+
+This reframes every prior 'memory hurts' finding (E04-E13) as
+spec-mismatch + plugin-side seed variance confounds. Memory is the
+best variant we've found when properly compared.
+
+**Operational decisions:**
+- Created `/data/shared/geophysics_agent_data/matt_repo3/` symlink +
+  README for collaborator access to all our outputs.
+- Committed to minimax + v2 specs as the canonical testbed (4x
+  faster, cleaner baseline, canonical spec set).
+
+**Next priorities:**
+1. Re-test E11/E12 (other memory variants) on v2+minimax. Only E13
+  (silent) has been run. Are they also positive?
+2. Multi-seed E18 + E17 for proper variance estimate.
+3. Hard mode via mine_examples_v2.py required_only generation.
+
+-> DAG: E15 good/keep, E16 good/keep, E17 good/keep, **E18 good/keep (first memory positive)**
+-> Evidence: misc/e16_vs_e02_test17.txt, misc/e17_vs_e16_test17.txt, misc/e18_vs_e17_test17.txt, misc/e18_vs_e16_test17.txt
+-> Decision: memory+plugin+minimax+v2 is now the best-known configuration. Reframe narrative from 'memory doesn't work' to 'memory works when properly compared.'
+
+---
+
+<a id="LOG-2026-04-21-5"></a>
+### 2026-04-21 — PAC-1 ablation campaign committed (D-004, XN-012); E19-E22 planned
+
+User framed the contribution as a stack of three CC adjustments {RAG,
+Memory, Self-Refinement} and asked for evidence that (a) the stack beats
+baseline, and (b) each component contributes or doesn't hurt.
+
+Committed to PAC-1 (Paper-ready Ablation Campaign, round 1):
+- **Phase A** — 2×2×2 single-seed ablation on v2+minimax, 17 test tasks.
+  6 cells needed; 3 already have data (E16, E17, E18, all of which ran
+  BEFORE verify_outputs.py existed — so all are hook-OFF).
+- **Phase B** — multi-seed (>=3 seeds) the informative cells from A.
+- **Phase C** — embedding-based memory (bge-small-en-v1.5 over
+  instructions_excerpt + productive_rag_queries), parallelizable with A/B.
+
+Phase A needs 4 new 17-task runs:
+- **E19** = A3 = plug+SR (no mem). Agent: `claude_code_repo3_plugin`.
+- **E20** = A5 = plug+mem+SR (full stack). Agent: `claude_code_repo3_plugin_gmemsilent`.
+- **E21** = A5n0 = plug+noop+no-SR. Agent: `claude_code_repo3_plugin_noop_nohook`.
+  Tests tool-list-shape hypothesis (XN-010 Section 5) — is memory's win just
+  about having an extra tool in the list?
+- **E22** = A5n1 = plug+noop+SR. Agent: `claude_code_repo3_plugin_noop`.
+
+Critical finding from timestamp check: `plugin/hooks/verify_outputs.py`
+was created 2026-04-21 12:08 UTC; E18 completed at 06:37 UTC. So E18
+ran WITHOUT the hook, and is cell A4 in the new taxonomy, not A5. Memory
+alone (no SR) already eliminated the failures on E18 — making the
+A5n0/A5n1 (noop) cells critical: if noop-alone also gets zero failures,
+memory per se may be contributing less than we thought.
+
+A6 (no-plug + SR, no memory, no RAG) requires a code refactor to unwire
+the hook from the plugin block. Deferred to PAC-1b.
+
+Primary metric: failures-as-zero TreeSim (XN-011). Paired on 17-task
+subset. Pre-registered thresholds in D-004.
+
+Next steps (PENDING USER SIGN-OFF — estimated cost $10-16 for 4 new
+17-task runs):
+1. Smoketest 2 tasks (Sneddon + Mandel, the fragile rescue tasks) per
+   new agent key. ~$2 total.
+2. If smoke passes, launch 4 full 17-task runs in sequence.
+3. Score all runs with failures-as-zero + scored-only.
+4. Produce PAC-1 Phase A results table.
+5. Review with user; if results clean, commit Phase B multi-seed.
+
+-> DAG: E19, E20, E21, E22 all planned
+-> Evidence: decisions/D-004_pac1-ablation-campaign.md, docs/XN-012_pac1-phase-a-ablation.md
+-> Decision: await user sign-off before launching smoketest.
+
+---
+
+<a id="LOG-2026-04-21-6"></a>
+### 2026-04-21 — PAC-1 Phase A seed-1 done; surprise negative interaction
+
+PAC-1 Phase A (D-005, XN-013) seed-1 results, fa0 TreeSim on 17 test tasks:
+
+| Cell | Config | Run | fa0 |
+|:-:|---|---|---:|
+| A1 | baseline | E16 | 0.497 |
+| A2 | RAG only | E17 | 0.440 |
+| A3 | RAG+SR | **E23 new** | **0.664** |
+| A4 | RAG+Mem | E18 | 0.725 |
+| A5 | FULL STACK | **E24 new** | **0.317** |
+
+**Stack LOSES to baseline on this seed** (A5-A1 = -0.180). Each component
+alone is positive (+SR +0.225, +Mem +0.286); combining them with RAG is
+catastrophically negative (A5-A3 paired = -0.347, 3/13 W/L).
+
+Memory is never called in either A4 or A5 (mem=0 tool_use events) — so
+the effect is NOT memory-retrieval poisoning. It's a tool-list-shape
+interaction between un-called memory + hook.
+
+Tool-list-shape confound: A4 (E18) tool list INCLUDES AskUserQuestion;
+A5 (E24) DOESN'T (removed in intervening session). So A5-A4 has TWO
+config differences, not just hook toggle.
+
+Multi-seed A3 + A5 launched 20:22 via /tmp/pac1_phase_a_seed2.sh. Will
+tell whether -0.180 reproduces.
+
+Adversarial review skipped — codex CLI unavailable locally (D-006). Same
+blocker as D-003 earlier today. Applied attack-priority list as
+same-model self-critique mitigation; risk accepted for preliminary
+single-seed framing.
+
+-> DAG: E23-RESULT good/keep, E24-RESULT negative/investigate, D-006 logged
+-> Evidence: misc/pac1/phase_a_summary.md, misc/pac1/scores/e23_summary.json, misc/pac1/scores/e24_summary.json, docs/XN-013_pac1-phase-a-ablation.md
+-> Decision: multi-seed A3 + A5 to confirm. If A5 seed 2 also regresses, paper story shifts to "silent tools help when ignored; combining safety nets + silent tools is not additive." If A5 rebounds, single-seed outlier; expand to full 3-seed matrix.
+
+---
+
+<a id="LOG-2026-04-21-7"></a>
+### 2026-04-21 — PAC-1 Phase A seed-2 REVERSAL: A5 is hugely bimodal
+
+Seed-2 runs completed:
+- **A3 seed 2** (pac1_plug_hook_s2): fa0 **0.641** (seed 1 was 0.664 — very stable).
+- **A5 seed 2** (pac1_plug_mem_hook_s2): fa0 **0.729** (seed 1 was 0.317 — massive +0.412 swing).
+
+Per-task A5 seed variance is enormous: CasedContactThermo 0.057 → 0.990;
+DPWellbore 0.141 → 1.000; DeviatedElastic 0.137 → 1.000; ViscoDP 0.083 → 0.951;
+kgdExperimentValidation 0.287 → 1.000. Pattern: "agent either fully nails it or
+fully misses" — consistent with the known catastrophic-rescue volatility.
+
+Updated multi-seed summary (n=2 each on v2+minimax):
+- A1 baseline: single seed 0.497
+- A3 (plug+hook) n=2: 0.664, 0.641 → mean 0.653 (stable)
+- A5 (full stack) n=2: 0.317, 0.729 → mean 0.523 (highly bimodal)
+- A5 mean vs baseline: +0.026 (marginal with n=2)
+- A3 mean vs baseline: +0.156 (likely real)
+- A5 mean vs A3 mean: -0.130 (memory adds variance; may hurt on average vs plug+hook-only)
+
+**Revised tentative paper story:**
+- **RAG + Self-Refinement (plug+hook) is the most reliable configuration.**
+- **Memory is high-risk, high-reward.** Good seeds: +0.2 vs plug; bad seeds: -0.4 vs plug.
+- The "each component contributes or doesn't hurt" framing needs qualification: memory has asymmetric risk.
+
+Phase B1 launched 20:58 (PAC-1 follow-up):
+- A4' = pac1_plug_mem_nohook_s1/s2 (plug+mem+nohook on CURRENT infra, for the AQ-confound fix)
+- A5 seed 3 = pac1_plug_mem_hook_s3 (3rd seed of full stack to better characterize the bimodal distribution)
+
+New agent key added: `claude_code_repo3_plugin_gmemsilent_nohook` (gmemsilent + stop_hook_enabled: False).
+
+-> DAG: E23 good/keep, E24-RESULT revised to 'bimodal-variance not simply-negative'
+-> Evidence: misc/pac1/scores/e23s2_summary.json, e24s2_summary.json, misc/pac1/phase_a_summary.md
+-> Decision: complete Phase B1 (3 more runs), then assess whether full stack reliably beats baseline OR revise to "plug+hook is the reliable configuration, memory is optional."
+
+---
+
+<a id="LOG-2026-04-21-8"></a>
+### 2026-04-21 — PAC-1 Phase A + B1 COMPLETE — refined paper story
+
+Multi-seed ablation campaign done on v2+minimax, 17 test tasks.
+
+**Final results table (fa0 TreeSim):**
+- A1 baseline: 0.497 (n=1)
+- A2 RAG only: 0.440 (n=1)
+- **A3 RAG+SR: 0.653 (n=2, σ=0.017) — MOST STABLE**
+- A4 RAG+Mem (old infra with AQ): 0.725 (n=1)
+- A4' RAG+Mem (new infra): 0.661 (n=2, σ=0.184)
+- **A5 FULL STACK: 0.607 (n=3, σ=0.252)**
+
+**Key finding: components do not stack additively.**
+- A3-A2: +0.213 (+SR)
+- A4'-A2: +0.221 (+Mem)
+- A5-A2: +0.167 (+Mem+SR) — LESS THAN EITHER ALONE
+- A5-A3: -0.045 (adding Mem hurts)
+- A5-A4': -0.053 (adding SR hurts)
+
+**SR is the variance-reduction component.** A3 std 0.017 (n=2); A4' std 0.184;
+A5 std 0.252. Hook catches parse errors + empty completions without
+changing mean behavior much once Mem is already present.
+
+**Memory tool is never called** in any A4/A4'/A5 run (mem=0 tool_use). Benefit is
+tool-list-shape only.
+
+**A5 seed-by-seed**: 0.317, 0.729, 0.776. Seed 1 was an outlier; typical is ~0.75.
+
+**Paper-ready claim (honest, preliminary n=1-3):**
+- Stack does beat baseline (+0.110) but not yet significantly.
+- Best single-component story: RAG+SR — lowest variance, +0.155 over baseline.
+- Memory helps but is unreliable without SR's variance reduction.
+- Components don't stack.
+
+**Open:** multi-seed A1/A2/A4' to n=3 minimum; adversarial review on codex install.
+
+-> DAG: E23s2, E24s2, E24s3, E25 (A4' s1), E26 (A4' s2) all good/keep
+-> Evidence: misc/pac1/scores/pac1_final_summary.md, misc/pac1/scores/*.json
+-> Decision: pausing campaign; findings substantive enough for user review before next compute spend. Cost this session ~$22. Cycles used: 3.
+
+<a id="LOG-2026-04-22-1"></a>
+### 2026-04-22 — User feedback + memory design pivot (D-007 → D-008)
+
+User (advisor's post-doc raised concerns; user relayed):
+1. Why is vanilla CC not good at this task? What's hard about it?
+2. Memory impl is "hack job" — lexical overlap in 2026 is unheard of.
+3. G-Memory seems overkill for single-agent.
+4. Review simpler memory approaches: Dynamic Cheatsheet, ACE, ReasoningBank, MemEvolve.
+5. Use OpenRouter for embeddings (OpenAI API unavailable).
+
+**Actions this session:**
+- XN-014 failure analysis written: 4 failure modes (F1 schema hallucination,
+  F2 wrong-version drift, F3 missing components, F4 spec under-specification).
+  RAG fixes F1; RAG alone introduces F2; SR catches hard failures; nothing
+  addresses F3/F4.
+- LN-002 memory survey redone properly with actual paper reads (first version
+  was hallucinated from training cutoff — saved feedback memory so this
+  doesn't happen again). 4 papers + repos cloned to misc/refs/.
+- D-007 memory ablation design written.
+- **Adversarial review (RN-003)** invoked on D-007 at implementation gate.
+  Found 4 P1 blockers: (a) 14/17 test tasks had leaked GT basenames in
+  memory_index.json through `reference_xmls` + `productive_rag_queries`,
+  (b) M0 as control has null test exposure (memory tool never called in A4'/A5),
+  (c) primer-size confound uncontrolled, (d) n=2 A3 baseline under-powered.
+- **D-008 design V2** addresses all 4 blockers:
+  - Hygiene audit gate (`scripts/memory/hygiene_audit.py`); memory_index
+    rebuilt with basenames stripped (old archived as LEAKY.bak).
+  - M-placebo (equivalent-token generic GEOS text) added as control.
+  - Token budget parity preregistered at 10% within pair.
+  - A3 seed 3 launched. Now A3 n=3 = {0.664, 0.641, 0.267}, mean 0.524, σ 0.221.
+  - Switched distillation model to gemini-3-flash-preview (breaks
+    self-distillation coupling).
+  - Paired-per-task Wilcoxon analysis replaces mean+std pass/fail.
+- **Infrastructure built:** trajectory_grounder.py, distiller.py (with
+  abstraction guardrails + regex gate), build_items_embedding_index.py,
+  render_items_to_primer.py, memory_mcp_embed.py (hard-error on missing
+  key, preflight, no silent degrade), analyze_memory_matrix.py.
+- **Artifacts distilled** (all hygiene-pass): M-placebo (1043 tok), M1-u (775),
+  M1-g (807, truncated to match M1-u within 4.1%), M4-u (728), M4-g (776,
+  6.6% parity with M4-u). Distillation used 18 train success + 18
+  vanilla-CC-train trajectories (9 failures in vanilla-CC set provide
+  anti-pattern content).
+- **Vanilla-CC-train hygiene**: ran with `--extend-blocklist-with-test`
+  flag (new, added to run_experiment.py); blocks all 55 union test-GT
+  basenames in addition to per-task blocks.
+- **Smoketests**: M1-g (primer variant) and M3-g (memory MCP tool variant)
+  both work end-to-end. M3 MCP connects; agent doesn't call it (matches
+  XN-011 observation that memory-as-tool is underutilized without prompt
+  nudging).
+- **Full matrix launched**: 6 conditions × 3 seeds = 18 new runs. Expected
+  wall ~4-5h, cost ~$60. Running sequentially to avoid OpenRouter rate limits.
+
+-> DAG: I06 (memory) and I10 (distillation grounding) — new leaf nodes
+   pending Wilcoxon analysis after matrix completes
+-> Evidence: D-008, RN-003, XN-014, LN-002, misc/memory_artifacts/
+-> Decision: proceed with matrix, analyze paired-per-task when complete,
+   run round-2 adversarial review on results before declaring.
+
+<a id="LOG-2026-04-22-2"></a>
+### 2026-04-22 (late morning) — D-008 matrix results + API contamination finding
+
+**Matrix complete. Headline: M1-u (monolithic DC-Cu primer) wins.**
+- M1-u: 0.796 ± 0.057, +0.272 vs A3, Wilcoxon p<0.001, 16/17 task-level wins.
+- M1-g: 0.766 ± 0.046, +0.242, p=0.003, 13/17 wins.
+- M-placebo: 0.373 ± 0.049, −0.152 vs A3, p=0.015 — content-specificity control passes.
+
+**API contamination discovered in 3 seeds:**
+- M4-u s3 → 13/17 tasks hit HTTP 402 `Insufficient credits` (credit exhaustion mid-run)
+- M3-g s2 + s3 → 17/17 each hit HTTP 403 `Key limit exceeded (weekly limit)`
+
+Initial aggregate numbers (M4-u 0.537, M3-g 0.094) were wrong — tainted
+by these seeds. After exclusion:
+- M4-u (n=2 valid): 0.729 ± 0.024 — stable, not "collapsed"
+- M3-g (n=1 valid): 0.281 with 0 memory_lookup calls — agent doesn't use the tool
+- M4-g (n=3, all clean): 0.469 ± 0.299 — REAL instability
+
+**Per-task diagnostic on M4-g pkn** (s1=1.000, s2=0.088, s3=0.000):
+- M4-g s3: minimax "empty completion" (0 output tokens, 3 turns).
+- M4-g s2: agent produced `<CompressibleSolidCappedPlatesPorosity>` —
+  invented vocabulary. M1-u (1.0 on same seed) had the primer explicitly
+  list `CompressibleSolidParallelPlatesPermeability` by name.
+
+**Format-ablation finding replaces grounding-ablation as primary story:**
+- Monolithic enumerated cheatsheet (M1) > structured-principle items (M4)
+  because the cheatsheet anchors specific vocabulary for F1 hallucination.
+- Grounding (TreeSim) did NOT help on aggregate (both pairs M-g worse than M-u).
+
+**Mitigation shipped:** `scripts/memory/check_api_contamination.py` scans
+any run dir for 402/403/429/401 signatures and flags EXCLUDE_SEED. Run
+before interpreting any new matrix. See
+`misc/memory_artifacts/openrouter_contamination_note.md` for the full
+breakdown and detection checklist.
+
+-> DAG: M1-u is new hero harness addition; D-008 complete
+-> Evidence: docs/XN-015_memory-ablation-results.md (updated with contamination finding),
+   misc/memory_artifacts/scores/matrix_summary.md,
+   misc/memory_artifacts/openrouter_contamination_note.md
+-> Decision: reframe paper ablation as primer-format (monolithic vs structured),
+   not grounding. Round-2 adversarial review still owed before final declaration.

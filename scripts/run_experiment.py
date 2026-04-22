@@ -116,6 +116,7 @@ DEFAULT_GEOS_PRIMER_PATH = Path(
 )
 DEFAULT_CLAUDE_MODEL = "minimax/minimax-m2.7"
 CONTAINER_PLUGIN_DIR = Path("/plugins/repo3")
+CONTAINER_SETTINGS_PATH = Path("/workspace/claude_settings.json")
 CONTAINER_VECTOR_DB_DIR = Path("/data/shared/geophysics_agent_data/data/vector_db")
 CONTAINER_MCP_CONFIG_PATH = Path("/workspace/claude_mcp_config.json")
 CONTAINER_GEOS_PRIMER_PATH = Path("/workspace/GEOS_PRIMER.md")
@@ -248,6 +249,60 @@ AGENTS: dict[str, dict] = {
         "memory_enabled": True,
         "memory_prompt_hint": False,
     },
+    # PAC-1 A4': plug + silent-memory with hook DISABLED. Needed because E18
+    # ran before the Stop hook existed AND before AskUserQuestion was removed
+    # from the tool list — so E18 vs E24 is confounded by 2 config changes.
+    # This agent gives a clean hook-off baseline with current infra.
+    "claude_code_repo3_plugin_gmemsilent_nohook": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_gmemsilent_nohook",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "memory_enabled": True,
+        "memory_prompt_hint": False,
+        "stop_hook_enabled": False,
+    },
+    # --- E20 hook-ablation variants (4 cells; see docs/XN-010, SESSION_HANDOFF
+    # 2026-04-21 §5, RN-002). All share the plain-plugin MCP config (geos-rag
+    # only) plus the --settings file. The hook is registered via --settings
+    # (not --plugin-dir) so the tool list stays identical to E17/E18.
+    #
+    # C0: hook OFF, no extra tool  →  E17 replicate.
+    "claude_code_repo3_plugin_nohook": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_nohook",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "stop_hook_enabled": False,
+    },
+    # C2: hook OFF, noop MCP present  →  isolates tool-list-shape effect.
+    "claude_code_repo3_plugin_noop_nohook": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_noop_nohook",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "stop_hook_enabled": False,
+        "noop_mcp_enabled": True,
+    },
+    # C4: hook ON + noop MCP  →  interaction check.
+    "claude_code_repo3_plugin_noop": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_noop",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "noop_mcp_enabled": True,
+    },
+    # C1 is just the existing claude_code_repo3_plugin (hook ON by default
+    # now that --settings wires it in). Kept distinct so the legacy name
+    # still points at the canonical "plain plugin" condition.
     # Ablation: same container, same primer, same prompt — but no repo3
     # plugin, no RAG tools, no vector DB. Baseline for measuring the plugin's
     # contribution. /geos_lib is still the filtered (decontaminated) copy.
@@ -258,6 +313,100 @@ AGENTS: dict[str, dict] = {
         "model": DEFAULT_CLAUDE_MODEL,
         "requires_rag": False,
         "plugin_enabled": False,
+    },
+    # -------------------------------------------------------------------------
+    # D-008 memory ablation (post-RN-003). All stacked on RAG+SR
+    # (plugin_enabled=True, stop_hook_enabled=True-by-default). Each variant
+    # delivers memory content via a different path. All are FROZEN at test time.
+    # -------------------------------------------------------------------------
+    # M-placebo: equivalent-token generic GEOS text, not trajectory-derived.
+    # Placebo control per RN-003 P1 #2.
+    "claude_code_repo3_plugin_m_placebo": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_m_placebo",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_placebo.md",
+    },
+    # M1-u: DC-Cu primer (ungrounded). Self-judged cheatsheet distilled from
+    # 18 training trajectories via gemini-3-flash-preview (no TreeSim feedback).
+    "claude_code_repo3_plugin_m1u": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_m1u",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_m1u.md",
+    },
+    # M1-g: DC-Cu primer (grounded). Same corpus as M1-u but the distiller
+    # was given TreeSim failure-mode labels, weakest-section scores, and
+    # dominant-dimension hints. Paired with M1-u for grounding attribution.
+    "claude_code_repo3_plugin_m1g": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_m1g",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_m1g.md",
+    },
+    # M3-g: RB items via in-run MCP tool. Embedding retrieval over the same
+    # items served to M4-g. Uses memory_mcp_embed.py with hard-error on
+    # missing OPENROUTER_API_KEY (RN-003 P2 #8). Claim C (locus) is weakened
+    # due to tool-list-shape confound (RN-003 P2 #5).
+    "claude_code_repo3_plugin_m3g": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_m3g",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "memory_enabled": True,
+        "memory_prompt_hint": False,  # don't advertise the tool; let tool list speak
+        "memory_variant": "embed",
+        "memory_items_path": REPO_ROOT / "plugin" / "memory_items_m4g.json",
+        "memory_embed_index_path": REPO_ROOT / "plugin" / "memory_items_m4g_embeddings.json",
+    },
+    # M3-g-hinted: same as M3-g (embedding MCP) but with memory_prompt_hint=True.
+    # Distinguishes "tool-locus is bad" from "agent doesn't spontaneously use it"
+    # per user's 2026-04-22 follow-up request.
+    "claude_code_repo3_plugin_m3g_hinted": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_m3g_hinted",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "memory_enabled": True,
+        "memory_prompt_hint": True,  # CHANGED from False — nudges agent to call memory_lookup
+        "memory_variant": "embed",
+        "memory_items_path": REPO_ROOT / "plugin" / "memory_items_m4g.json",
+        "memory_embed_index_path": REPO_ROOT / "plugin" / "memory_items_m4g_embeddings.json",
+    },
+    # M4-u: RB items (ungrounded) via external primer injection. Same items
+    # format as M4-g but distilled without TreeSim feedback. Paired with
+    # M4-g for attribution claim.
+    "claude_code_repo3_plugin_m4u": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_m4u",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_m4u.md",
+    },
+    # M4-g: RB items (grounded) via external primer injection. Hero run.
+    "claude_code_repo3_plugin_m4g": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_m4g",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_m4g.md",
     },
     "cursor_composer2": {
         "runner": "acpx",
@@ -850,12 +999,47 @@ def analyze_event_stream_text(text: str) -> dict[str, Any]:
     }
 
 
+def write_claude_settings(*, result_dir: Path, hook_enabled: bool) -> Path:
+    """Write claude_settings.json with the Stop hook (verify_outputs.py).
+
+    Registering the hook via --settings instead of --plugin-dir keeps the
+    tool list identical to pre-hook runs (plugin skill does not surface).
+    The GEOS_HOOK_DISABLE env var is the runtime kill switch; passing
+    hook_enabled=False here omits the hook from settings entirely for
+    maximal baseline parity with E17.
+    """
+    container_hook = CONTAINER_PLUGIN_DIR / "hooks" / "verify_outputs.py"
+    settings: dict[str, Any] = {}
+    if hook_enabled:
+        settings["hooks"] = {
+            "Stop": [
+                {
+                    "matcher": "",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"python3 {container_hook}",
+                            "timeout": 30,
+                        }
+                    ],
+                }
+            ]
+        }
+    path = result_dir / CONTAINER_SETTINGS_PATH.name
+    _safe_write_json(path, settings)
+    return path
+
+
 def write_claude_mcp_config(
     *,
     result_dir: Path,
     blocked_xml_filenames: list[str],
     blocked_rst_relpaths: list[str],
     enable_memory: bool = False,
+    enable_noop: bool = False,
+    memory_variant: str = "lexical",  # "lexical" (memory_mcp.py) or "embed" (memory_mcp_embed.py)
+    memory_items_host_path: Path | None = None,
+    memory_embed_index_host_path: Path | None = None,
 ) -> Path:
     """Write the explicit MCP config Claude Code uses inside the container.
 
@@ -886,17 +1070,64 @@ def write_claude_mcp_config(
         },
     }
     if enable_memory:
-        servers["memory"] = {
+        if memory_variant == "embed":
+            # M3 — embedding MCP with hard-error on missing key + preflight (RN-003 P2 #8).
+            # Host paths under plugin/ mount at /plugins/repo3/ in container; translate.
+            def _host_plugin_to_container(host_path: Path | None, default_name: str) -> str:
+                if host_path is None:
+                    return str(CONTAINER_PLUGIN_DIR / default_name)
+                hp = Path(host_path).resolve()
+                try:
+                    rel = hp.relative_to(REPO_ROOT / "plugin")
+                    return str(CONTAINER_PLUGIN_DIR / rel)
+                except ValueError:
+                    # Not under plugin/; leave as-is (may not mount)
+                    return str(hp)
+
+            mem_env = {
+                "CLAUDE_PLUGIN_ROOT": str(CONTAINER_PLUGIN_DIR),
+                "MEMORY_ITEMS_PATH": _host_plugin_to_container(
+                    memory_items_host_path, "memory_items.json"),
+                "MEMORY_EMBED_INDEX_PATH": _host_plugin_to_container(
+                    memory_embed_index_host_path, "memory_items_embeddings.json"),
+            }
+            servers["memory"] = {
+                "type": "stdio",
+                "command": "uv",
+                "args": [
+                    "run",
+                    "--script",
+                    "--with", "numpy>=1.26",
+                    "--with", "requests>=2.31",
+                    str(CONTAINER_PLUGIN_DIR / "scripts" / "memory_mcp_embed.py"),
+                ],
+                "env": mem_env,
+            }
+        else:
+            servers["memory"] = {
+                "type": "stdio",
+                "command": "uv",
+                "args": [
+                    "run",
+                    "--script",
+                    str(CONTAINER_PLUGIN_DIR / "scripts" / "memory_mcp.py"),
+                ],
+                "env": {
+                    "CLAUDE_PLUGIN_ROOT": str(CONTAINER_PLUGIN_DIR),
+                    "MEMORY_INDEX_PATH": str(CONTAINER_PLUGIN_DIR / "memory_index.json"),
+                },
+            }
+    if enable_noop:
+        servers["noop"] = {
             "type": "stdio",
             "command": "uv",
             "args": [
                 "run",
                 "--script",
-                str(CONTAINER_PLUGIN_DIR / "scripts" / "memory_mcp.py"),
+                str(CONTAINER_PLUGIN_DIR / "scripts" / "noop_mcp.py"),
             ],
             "env": {
                 "CLAUDE_PLUGIN_ROOT": str(CONTAINER_PLUGIN_DIR),
-                "MEMORY_INDEX_PATH": str(CONTAINER_PLUGIN_DIR / "memory_index.json"),
             },
         }
     mcp_config_path = result_dir / CONTAINER_MCP_CONFIG_PATH.name
@@ -1017,6 +1248,9 @@ def build_claude_native_command(
             "-e", "GEOS_VECTOR_DB_DIR",
             "-e", "EXCLUDED_GT_XML_FILENAMES",
             "-e", "EXCLUDED_RST_PATHS",
+            # CLAUDE_PLUGIN_ROOT is used by the plugin's hooks.json to locate
+            # the hook script (python3 ${CLAUDE_PLUGIN_ROOT}/hooks/verify_outputs.py).
+            "-e", f"CLAUDE_PLUGIN_ROOT={CONTAINER_PLUGIN_DIR}",
         ]
     cmd += [
         DOCKER_IMAGE,
@@ -1033,6 +1267,12 @@ def build_claude_native_command(
         cmd += [
             f"--mcp-config={CONTAINER_MCP_CONFIG_PATH}",
             "--strict-mcp-config",
+            # The Stop hook (verify_outputs.py) is registered via --settings
+            # rather than --plugin-dir so the tool list matches pre-hook runs
+            # (E17/E18) exactly. Loading the plugin as a plugin would surface
+            # its skill in the tool list and confound hook-effect experiments
+            # with tool-list-shape effects. See RN-002 / XN-010.
+            "--settings", str(CONTAINER_SETTINGS_PATH),
         ]
     cmd += [
         "--output-format", "stream-json",
@@ -1297,6 +1537,7 @@ def run_task(
     claude_model: str | None = None,
     tmp_geos_parent: Path | None = None,
     geos_lib_dir: Path | None = None,
+    extra_blocked_xml_basenames: list[str] | None = None,
 ) -> dict:
     geos_root = (geos_lib_dir if geos_lib_dir is not None else GEOS_LIB_DIR).resolve()
     agent = AGENTS[agent_key]
@@ -1354,6 +1595,18 @@ def run_task(
         blocked_xml_filenames = blocked["blocked_xml_filenames"]
         blocked_rst_relpaths = blocked["blocked_rst_paths"]
 
+    # Optional extra blocklist (e.g. extending a train-task run with all test-task blocked
+    # basenames so harvested trajectories don't see test-GT content — hygiene path for
+    # building memory artifacts; see RN-003 P2 #7).
+    if extra_blocked_xml_basenames:
+        before = set(blocked_xml_filenames)
+        blocked_xml_filenames = sorted(
+            set(blocked_xml_filenames) | {b.lower() for b in extra_blocked_xml_basenames}
+        )
+        added = len(blocked_xml_filenames) - len(before)
+        if added:
+            print(f"  [extra-blocklist] {added} additional XML basenames blocked for {task_name}")
+
     # Create a per-task filtered copy of GEOS with blocked files excluded.
     # This is the primary enforcement mechanism for file-read restrictions: the
     # files simply don't exist in the agent's /geos_lib mount. Dry-runs skip the
@@ -1393,7 +1646,21 @@ def run_task(
                 blocked_xml_filenames=blocked_xml_filenames,
                 blocked_rst_relpaths=blocked_rst_relpaths,
                 enable_memory=bool(agent.get("memory_enabled", False)),
+                enable_noop=bool(agent.get("noop_mcp_enabled", False)),
+                memory_variant=str(agent.get("memory_variant", "lexical")),
+                memory_items_host_path=(
+                    Path(agent["memory_items_path"]).resolve()
+                    if agent.get("memory_items_path") else None
+                ),
+                memory_embed_index_host_path=(
+                    Path(agent["memory_embed_index_path"]).resolve()
+                    if agent.get("memory_embed_index_path") else None
+                ),
             )
+            # Separate kill switch so the hook can be in-settings but inert.
+            # Env var is forwarded to the container in build_claude_native_command.
+            hook_enabled = bool(agent.get("stop_hook_enabled", True))
+            write_claude_settings(result_dir=result_dir, hook_enabled=hook_enabled)
         else:
             plugin_dir = None
         native_model = claude_model or agent.get("model") or DEFAULT_CLAUDE_MODEL
@@ -2911,6 +3178,15 @@ def main() -> None:
              f"(default: {DEFAULT_CLAUDE_MODEL})",
     )
     parser.add_argument(
+        "--extend-blocklist-with-test",
+        action="store_true",
+        default=False,
+        help="Extend each task's blocklist with the union of all 17 test-task "
+             "blocked_gt_xml_filenames. Required when harvesting trajectories from "
+             "training tasks that will feed memory artifacts used at test time. "
+             "Loads the blocklist from misc/memory_artifacts/test_blocklist.json.",
+    )
+    parser.add_argument(
         "--dashboard",
         action="store_true",
         help="Serve a browser dashboard for live task status and output",
@@ -3110,6 +3386,22 @@ def main() -> None:
 
     results: list[dict] = []
 
+    # Load the test-blocklist union if --extend-blocklist-with-test is set.
+    # See RN-003 P2 #7: harvesting trajectories from training tasks that will feed
+    # memory artifacts used at test time requires hiding ALL test-task GT basenames
+    # from every training run, not just the per-task defaults.
+    extra_blocked_xml_basenames: list[str] = []
+    if getattr(args, "extend_blocklist_with_test", False):
+        test_bl_path = Path("/home/matt/sci/repo3/misc/memory_artifacts/test_blocklist.json")
+        if not test_bl_path.exists():
+            print(f"{C.FAIL}ERROR: --extend-blocklist-with-test requires {test_bl_path} "
+                  f"(build via scripts/memory/compute_test_blocklist.py){C.ENDC}")
+            sys.exit(1)
+        bl_data = json.loads(test_bl_path.read_text())
+        extra_blocked_xml_basenames = list(bl_data.get("union_xml", []))
+        print(f"{C.CYAN}--extend-blocklist-with-test:{C.ENDC} "
+              f"unioning {len(extra_blocked_xml_basenames)} test-task blocked basenames into every task's blocklist")
+
     executor = ThreadPoolExecutor(max_workers=args.workers)
     futures = {
         executor.submit(
@@ -3129,6 +3421,7 @@ def main() -> None:
             claude_model=args.claude_model,
             tmp_geos_parent=args.tmp_geos_parent,
             geos_lib_dir=geos_lib_resolved,
+            extra_blocked_xml_basenames=extra_blocked_xml_basenames,
         ): (task, agent)
         for task, agent in combos
     }
