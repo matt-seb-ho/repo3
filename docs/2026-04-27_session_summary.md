@@ -287,13 +287,15 @@ on top of the Group B stack. Same minimal base primer; agent variant
 
 | Condition | n | Mean | σ | Notes |
 |---|---:|---:|---:|---|
-| Best+M1-u, **minimax m2.7** | 1 (in flight) | tbd | — | 16/17 done at writeup time |
+| Best+M1-u, **minimax m2.7** | 1 | 0.581 | — | 17/17 |
 | Best+M1-u, **DSv4-flash** | 3 | 0.617 | 0.012 | s1=0.617, s2=0.629, s3=0.606 (17/17 each) |
 
 **Memory primer does not visibly help on DSv4-flash** (0.617 with memory
-vs 0.628 without — within seed variance, σ ≈ 0.034 vs 0.012). The M1-u
-primer was the hero of the D-008 ablation on minimax, but the gain
-appears not to transfer to DSv4. Possible explanations:
+vs 0.628 without — within seed variance, σ ≈ 0.034 vs 0.012). It also
+appears to slightly hurt on minimax single-seed (0.581 with memory vs
+0.622 without), though n=1 makes that uncertain. The M1-u primer was
+the hero of the D-008 ablation on minimax, but the gain appears not to
+transfer to either model in the new harness. Possible explanations:
 
 - The memory primer's content (named GEOS solver families, anti-pattern
   list) may be redundant with what DSv4 already infers from its better
