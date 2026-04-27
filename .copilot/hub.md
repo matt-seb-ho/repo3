@@ -341,13 +341,14 @@ any new campaign.
 | E20-COMPLETE | negative | XN-013 |  |
 | E23 | planned | XN-013, XN-014, XN-015, D-006, D-007, D-008 |  |
 | E24 | planned | XN-013, XN-014, XN-015, D-006, D-007, D-008 |  |
+| E25 | good | XN-017, D-010 |  |
 | I04 | Assumed | XN-001, XN-005, XN-006, XN-008 |  |
 | I05 | exploring | XN-001, XN-005, XN-006, XN-013, D-004 |  |
 | I06 | exploring | XN-015, LN-001, D-001, D-002, D-007, D-008 |  |
 | I08 | negative | XN-006, XN-007 |  |
 | I10 | exploring | XN-002, XN-003, XN-004, XN-006, XN-009, XN-015, LN-001, D-001, D-002, D-007, D-008 |  |
 | I11 | exploring | XN-013, D-002, D-004 |  |
-| I12 | exploring | D-004 |  |
+| I12 | exploring | XN-016, D-004, D-009 |  |
 | I13 | exploring | D-004 |  |
 
 ## Experiment Notes
@@ -367,6 +368,8 @@ any new campaign.
 | XN-013 | PAC-1 Phase A — {RAG, Memory, Self-Refinement} ablation on v2+minimax (17-task) | 2026-04-21 | I05, I11, E16, E17, E18, E20-COMPLETE, E23, E24 |  |
 | XN-014 | PAC-1 failure analysis: why is vanilla CC + RAG failing on GEOS-XML? | 2026-04-22 | E16, E17, E23, E24 | failure-analysis, discussion-section, vanilla-cc, rag |
 | XN-015 | Memory ablation results — D-008 matrix complete | 2026-04-22 | I06, I10, E23, E24 | memory, ablation, results, hero-run |
+| XN-016 | OpenHands harness baseline — design, smoketest, full-run | 2026-04-27 | I12 | baseline, harness, openhands, cross-harness |
+| XN-017 | Sub-agent orchestrator results (D-010, DSv4-flash direct) | 2026-04-27 | I14, E25 |  |
 
 ## Literature Notes
 
@@ -387,6 +390,8 @@ any new campaign.
 | D-006 | PAC-1 findings — adversarial-review skill unavailable (codex CLI not installed) | 2026-04-21 | E23, E24 |  |
 | D-007 | Memory ablation: 5 frozen variants stacked on RAG+SR (SUPERSEDED by D-008) | 2026-04-22 | I06, I10, E23, E24 |  |
 | D-008 | Memory ablation V2: hygiene-fixed design after RN-003 adversarial review | 2026-04-22 | I06, I10, E23, E24 |  |
+| D-009 | Add OpenHands as a third-harness baseline (vanilla parity) | 2026-04-27 | I12 |  |
+| D-010 | Sub-agent orchestrator for GEOS XML authoring | 2026-04-27 | I14, E25 |  |
 
 ## Dead Ends
 
@@ -394,11 +399,11 @@ any new campaign.
 
 ## Recent Log
 
-- [LOG-2026-04-21-6](research_log.md#LOG-2026-04-21-6) — 2026-04-21 — PAC-1 Phase A seed-1 done; surprise negative interaction
-- [LOG-2026-04-21-7](research_log.md#LOG-2026-04-21-7) — 2026-04-21 — PAC-1 Phase A seed-2 REVERSAL: A5 is hugely bimodal
-- [LOG-2026-04-21-8](research_log.md#LOG-2026-04-21-8) — 2026-04-21 — PAC-1 Phase A + B1 COMPLETE — refined paper story
 - [LOG-2026-04-22-1](research_log.md#LOG-2026-04-22-1) — 2026-04-22 — User feedback + memory design pivot (D-007 → D-008)
 - [LOG-2026-04-22-2](research_log.md#LOG-2026-04-22-2) — 2026-04-22 (late morning) — D-008 matrix results + API contamination finding
+- [LOG-2026-04-27-1](research_log.md#LOG-2026-04-27-1) — 2026-04-27 — Third-harness baseline (OpenHands) added
+- [LOG-2026-04-27-2](research_log.md#LOG-2026-04-27-2) — 2026-04-27 — OpenHands `oh_test17_s1` results (1 seed; NOT validated)
+- [LOG-2026-04-27-4](research_log.md#LOG-2026-04-27-4) — 2026-04-27 — OH baseline parity audit + cost/token instrumentation (NOT a "OH > CC" claim)
 
 ## Broken Links
 
@@ -406,10 +411,16 @@ any new campaign.
 |--------|--------|------|
 | XN-015 | RN-003 | derived_from |
 | XN-015 | LN-002 | related_to |
+| XN-017 | I14 | dag_nodes |
+| XN-017 | .copilot/decisions/D-010_subagent-orchestrator.md | derived_from |
+| XN-017 | docs/2026-04-27_subagent-architecture-geos.md | derived_from |
 | D-003 | RN-001 | related_to |
 | D-007 | LN-002 | derived_from |
 | D-008 | RN-003 | derived_from |
 | D-008 | LN-002 | related_to |
+| D-009 | docs/2026-04-27_other-coding-agent-harness-selection.md | derived_from |
+| D-010 | I14 | dag_nodes |
+| D-010 | docs/2026-04-27_subagent-architecture-geos.md | derived_from |
 | E01 | ablation_findings.md | evidence |
 | E02 | ablation_findings.md | evidence |
 | E03 | docs/XN-001_plugin-vs-no-plugin-deepseek.md | evidence |
@@ -464,6 +475,7 @@ any new campaign.
 
 - XN-013 has 2 links (consider pruning)
 - XN-015 has 2 links (consider pruning)
+- XN-017 has 2 links (consider pruning)
 - LN-001 has 2 links (consider pruning)
 - D-007 has 3 links (consider pruning)
 - D-008 has 3 links (consider pruning)

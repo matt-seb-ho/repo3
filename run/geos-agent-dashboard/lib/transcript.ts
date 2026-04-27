@@ -40,6 +40,8 @@ export type ParsedEvent = {
   apiInputTokens: number | null;
   apiOutputTokens: number | null;
   roughTokens: number;
+  pairedEventIndex: number | null;
+  filePath: string | null;
 };
 
 export type TranscriptTurn = {
@@ -54,6 +56,15 @@ export type TranscriptTurn = {
   inputTokens: number | null;
   outputTokens: number | null;
   roughTokens: number;
+};
+
+export type FileAccess = {
+  path: string;
+  reads: number;
+  edits: number;
+  writes: number;
+  firstEventIndex: number;
+  eventIndices: number[];
 };
 
 export type ParsedTranscript = {
@@ -79,10 +90,13 @@ export type ParsedTranscript = {
     roughTokenTotal: number;
     finalUsage: UsageSummary | null;
     turns: TranscriptTurn[];
+    files: FileAccess[];
   };
 };
 
 type ContentBlock = Record<string, unknown>;
+
+const FILE_TOOL_NAMES = new Set(["Read", "Edit", "Write", "MultiEdit", "NotebookEdit"]);
 
 export function parseTranscriptSource(text: string): ParsedTranscript {
   const trimmed = text.trim();
@@ -130,25 +144,67 @@ function buildTranscript(
   totalLines: number
 ): ParsedTranscript {
   const toolNamesById = new Map<string, string>();
-  const events = records.map((record, index) => {
-    const event = normalizeEvent(record, index);
+  const keptIndices: number[] = [];
 
-    if (event.toolUseId && event.toolName) {
-      toolNamesById.set(event.toolUseId, event.toolName);
+  const rawEvents = records
+    .map((record, recordIndex) => {
+      if (isPurelyRedactedThinking(record)) return null;
+
+      const event = normalizeEvent(record, keptIndices.length, recordIndex);
+      keptIndices.push(recordIndex);
+
+      if (event.toolUseId && event.toolName) {
+        toolNamesById.set(event.toolUseId, event.toolName);
+      }
+
+      return event;
+    })
+    .filter((event): event is ParsedEvent => event !== null);
+
+  // Link tool_use ↔ tool_result via toolUseId, and backfill tool names / file paths on results.
+  const toolUseEventByToolId = new Map<string, number>();
+  rawEvents.forEach((event) => {
+    if (event.kind === "tool_use" && event.toolUseId) {
+      toolUseEventByToolId.set(event.toolUseId, event.index);
+    }
+  });
+
+  const toolResultEventByToolId = new Map<string, number>();
+  rawEvents.forEach((event) => {
+    if (event.kind === "tool_result" && event.toolUseId) {
+      toolResultEventByToolId.set(event.toolUseId, event.index);
+    }
+  });
+
+  const linkedEvents = rawEvents.map((event) => {
+    let toolName = event.toolName;
+    let filePath = event.filePath;
+    let pairedEventIndex: number | null = null;
+
+    if (!toolName && event.toolUseId) {
+      toolName = toolNamesById.get(event.toolUseId) ?? null;
     }
 
-    return event;
+    if (event.kind === "tool_use" && event.toolUseId) {
+      pairedEventIndex = toolResultEventByToolId.get(event.toolUseId) ?? null;
+    } else if (event.kind === "tool_result" && event.toolUseId) {
+      pairedEventIndex = toolUseEventByToolId.get(event.toolUseId) ?? null;
+    }
+
+    if (toolName && toolName !== event.toolName) {
+      // Re-derive title for results that only now got their tool name.
+      const newTitle =
+        event.kind === "tool_result"
+          ? `Tool result: ${toolName}`
+          : event.title;
+
+      return { ...event, toolName, pairedEventIndex, filePath, title: newTitle };
+    }
+
+    return { ...event, pairedEventIndex, filePath };
   });
 
-  const eventsWithLinkedTools = events.map((event) => {
-    if (event.toolName || !event.toolUseId) return event;
-
-    return {
-      ...event,
-      toolName: toolNamesById.get(event.toolUseId) ?? null
-    };
-  });
-  const eventsWithTurns = assignTurns(eventsWithLinkedTools);
+  const eventsWithTurns = assignTurns(linkedEvents);
 
   return {
     events: eventsWithTurns,
@@ -158,25 +214,43 @@ function buildTranscript(
   };
 }
 
-function normalizeEvent(record: TranscriptRecord, index: number): ParsedEvent {
+function normalizeEvent(
+  record: TranscriptRecord,
+  index: number,
+  _recordIndex: number
+): ParsedEvent {
   const message = getObject(record.message);
   const content = message ? message.content : undefined;
   const blocks = Array.isArray(content)
-    ? content.filter(isObject) as ContentBlock[]
+    ? (content.filter(isObject) as ContentBlock[])
     : [];
-  const firstBlock = blocks[0];
+  const visibleBlocks = blocks.filter(
+    (block) => getString(block.type) !== "redacted_thinking"
+  );
+  const firstBlock = visibleBlocks[0] ?? blocks[0];
   const blockType = getString(firstBlock?.type);
   const type = getString(record.type) ?? "unknown";
   const role = getString(message?.role) ?? getString(record.role) ?? "none";
   const subtype = getString(record.subtype);
-  const toolBlock = blocks.find((block) => getString(block.type) === "tool_use");
-  const toolResultBlock = blocks.find((block) => getString(block.type) === "tool_result");
+  const toolBlock = visibleBlocks.find(
+    (block) => getString(block.type) === "tool_use"
+  );
+  const toolResultBlock = visibleBlocks.find(
+    (block) => getString(block.type) === "tool_result"
+  );
   const toolUseId =
     getString(toolBlock?.id) ??
     getString(toolResultBlock?.tool_use_id) ??
     getString(record.tool_use_id);
   const parentToolUseId = getString(record.parent_tool_use_id);
   const toolName = getString(toolBlock?.name);
+  const toolInput = getObject(toolBlock?.input);
+  const filePath =
+    toolName && FILE_TOOL_NAMES.has(toolName)
+      ? getString(toolInput?.file_path) ??
+        getString(toolInput?.notebook_path) ??
+        null
+      : null;
   const usage = summarizeUsage(message?.usage);
   const topLevelUsage = summarizeUsage(record.usage);
   const mergedUsage = mergeUsage(usage, topLevelUsage);
@@ -196,7 +270,7 @@ function normalizeEvent(record: TranscriptRecord, index: number): ParsedEvent {
     subtype,
     kind,
     title: eventTitle(type, role, subtype, blockType, toolName),
-    preview: eventPreview(record, blocks, kind),
+    preview: eventPreview(record, visibleBlocks, kind),
     model: getString(message?.model) ?? getString(record.model),
     provider: getString(message?.provider) ?? getString(record.provider),
     messageId: getString(message?.id),
@@ -209,8 +283,21 @@ function normalizeEvent(record: TranscriptRecord, index: number): ParsedEvent {
     usage: mergedUsage,
     apiInputTokens: mergedUsage.inputTokens,
     apiOutputTokens: mergedUsage.outputTokens,
-    roughTokens: roughTokenEstimate(JSON.stringify(message ?? record))
+    roughTokens: roughTokenEstimate(JSON.stringify(message ?? record)),
+    pairedEventIndex: null,
+    filePath
   };
+}
+
+function isPurelyRedactedThinking(record: TranscriptRecord): boolean {
+  const message = getObject(record.message);
+  const content = message?.content;
+
+  if (!Array.isArray(content) || content.length === 0) return false;
+
+  return content.every(
+    (block) => isObject(block) && getString(block.type) === "redacted_thinking"
+  );
 }
 
 function assignTurns(events: ParsedEvent[]) {
@@ -262,7 +349,7 @@ function summarize(
     countsByKind[event.kind] = (countsByKind[event.kind] ?? 0) + 1;
     roughTokenTotal += event.roughTokens;
 
-    if (event.toolName) {
+    if (event.toolName && event.kind === "tool_use") {
       toolCounts[event.toolName] = (toolCounts[event.toolName] ?? 0) + 1;
     }
 
@@ -283,17 +370,23 @@ function summarize(
   const firstModelEvent = events.find((event) => event.model);
   const firstProviderEvent = events.find((event) => event.provider);
   const turns = summarizeTurns(events);
+  const files = summarizeFileAccess(events);
 
   return {
     cwd: getString(init.cwd),
-    sessionId: getString(init.session_id) ?? events.find((event) => event.sessionId)?.sessionId ?? null,
+    sessionId:
+      getString(init.session_id) ??
+      events.find((event) => event.sessionId)?.sessionId ??
+      null,
     model: getString(init.model) ?? firstModelEvent?.model ?? null,
     provider: firstProviderEvent?.provider ?? null,
     totalLines,
     totalEvents: events.length,
     numTurns: result ? getNumber(result.num_turns) : null,
     durationMs: result ? getNumber(result.duration_ms) : null,
-    costUsd: result ? (getNumber(result.openrouter_cost_usd) ?? getNumber(result.total_cost_usd)) : null,
+    costUsd: result
+      ? getNumber(result.openrouter_cost_usd) ?? getNumber(result.total_cost_usd)
+      : null,
     countsByType,
     countsByKind,
     toolCounts,
@@ -302,12 +395,57 @@ function summarize(
     apiOutputTotal: hasOutputTotal ? apiOutputTotal : null,
     roughTokenTotal,
     finalUsage: resultUsage && hasAnyUsage(resultUsage) ? resultUsage : null,
-    turns
+    turns,
+    files
   };
 }
 
+function summarizeFileAccess(events: ParsedEvent[]): FileAccess[] {
+  const map = new Map<string, FileAccess>();
+
+  events.forEach((event) => {
+    if (event.kind !== "tool_use" || !event.filePath || !event.toolName) return;
+
+    const existing = map.get(event.filePath);
+
+    if (!existing) {
+      map.set(event.filePath, {
+        path: event.filePath,
+        reads: event.toolName === "Read" ? 1 : 0,
+        edits:
+          event.toolName === "Edit" || event.toolName === "MultiEdit"
+            ? 1
+            : 0,
+        writes:
+          event.toolName === "Write" || event.toolName === "NotebookEdit"
+            ? 1
+            : 0,
+        firstEventIndex: event.index,
+        eventIndices: [event.index]
+      });
+      return;
+    }
+
+    if (event.toolName === "Read") existing.reads += 1;
+    else if (event.toolName === "Edit" || event.toolName === "MultiEdit")
+      existing.edits += 1;
+    else if (event.toolName === "Write" || event.toolName === "NotebookEdit")
+      existing.writes += 1;
+    existing.eventIndices.push(event.index);
+  });
+
+  return Array.from(map.values()).sort((a, b) => {
+    const totalA = a.reads + a.edits + a.writes;
+    const totalB = b.reads + b.edits + b.writes;
+    return totalB - totalA || a.path.localeCompare(b.path);
+  });
+}
+
 function summarizeTurns(events: ParsedEvent[]): TranscriptTurn[] {
-  const turns = new Map<number, TranscriptTurn & { hasInput: boolean; hasOutput: boolean }>();
+  const turns = new Map<
+    number,
+    TranscriptTurn & { hasInput: boolean; hasOutput: boolean }
+  >();
 
   events.forEach((event) => {
     if (event.turnIndex === null) return;
@@ -324,7 +462,7 @@ function summarizeTurns(events: ParsedEvent[]): TranscriptTurn[] {
         title: `Turn ${event.turnIndex}`,
         preview: turnPreview(event),
         eventCount: 1,
-        toolCount: event.toolName ? 1 : 0,
+        toolCount: event.kind === "tool_use" ? 1 : 0,
         isError: event.isError,
         inputTokens,
         outputTokens,
@@ -336,7 +474,7 @@ function summarizeTurns(events: ParsedEvent[]): TranscriptTurn[] {
     }
 
     existing.eventCount += 1;
-    existing.toolCount += event.toolName ? 1 : 0;
+    existing.toolCount += event.kind === "tool_use" ? 1 : 0;
     existing.isError = existing.isError || event.isError;
     existing.roughTokens += event.roughTokens;
 
@@ -379,8 +517,8 @@ function eventTitle(
   if (type === "system") return subtype ? `System ${subtype}` : "System";
   if (type === "result") return subtype ? `Result ${subtype}` : "Result";
   if (blockType === "tool_use") return toolName ? `Tool call: ${toolName}` : "Tool call";
-  if (blockType === "tool_result") return "Tool result";
-  if (blockType === "redacted_thinking") return "Redacted reasoning";
+  if (blockType === "tool_result")
+    return toolName ? `Tool result: ${toolName}` : "Tool result";
   if (blockType === "thinking") return "Reasoning";
   if (blockType === "text") return `${titleCase(role)} response`;
   return titleCase(role === "none" ? type : role);
@@ -400,7 +538,12 @@ function eventPreview(record: TranscriptRecord, blocks: ContentBlock[], kind: st
     const orCost = getNumber(record.openrouter_cost_usd);
     const ccCost = getNumber(record.total_cost_usd);
     const cost = orCost ?? ccCost;
-    const costLabel = cost == null ? null : orCost != null ? `$${cost.toFixed(4)} (OR)` : `$${cost.toFixed(4)} (CC)`;
+    const costLabel =
+      cost == null
+        ? null
+        : orCost != null
+        ? `$${cost.toFixed(4)} (OR)`
+        : `$${cost.toFixed(4)} (CC)`;
     const duration = getNumber(record.duration_ms);
 
     return compact([
@@ -413,10 +556,14 @@ function eventPreview(record: TranscriptRecord, blocks: ContentBlock[], kind: st
   if (kind === "tool_use") {
     const toolBlock = blocks.find((block) => getString(block.type) === "tool_use");
     const input = getObject(toolBlock?.input);
+    const filePath = getString(input?.file_path);
     const description = getString(input?.description);
     const command = getString(input?.command);
 
-    return truncate(description ?? command ?? JSON.stringify(input ?? toolBlock), 280);
+    return truncate(
+      filePath ?? description ?? command ?? JSON.stringify(input ?? toolBlock),
+      280
+    );
   }
 
   if (kind === "tool_result") {
@@ -440,7 +587,6 @@ function eventPreview(record: TranscriptRecord, blocks: ContentBlock[], kind: st
     .map((block) => {
       if (getString(block.type) === "text") return getString(block.text);
       if (getString(block.type) === "thinking") return getString(block.thinking);
-      if (getString(block.type) === "redacted_thinking") return "Reasoning payload is redacted.";
       return JSON.stringify(block);
     })
     .filter(Boolean)
@@ -520,7 +666,9 @@ function isToolResultEvent(record: TranscriptRecord) {
 
   if (!Array.isArray(content)) return false;
 
-  return content.some((block) => isObject(block) && getString(block.type) === "tool_result");
+  return content.some(
+    (block) => isObject(block) && getString(block.type) === "tool_result"
+  );
 }
 
 function getObject(value: unknown): Record<string, unknown> | null {
