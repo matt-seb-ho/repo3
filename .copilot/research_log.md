@@ -1368,3 +1368,43 @@ Full 17-task run is queued for the user's return.
 5-task set: TutorialSneddon (fracture), ExampleMandel (poromechanics),
 TutorialPoroelasticity (poromechanics + ICs), AdvancedExampleDruckerPrager
 (plasticity), buckleyLeverettProblem (multiphase).
+
+---
+<a id="LOG-2026-04-27-6"></a>
+## 2026-04-27 — Orchestrator 5-task results: +0.330 over vanilla DSv4-flash
+
+5-task campaign `orch_dsv4_5task_s1` finished. 5/5 success, all xmllint-valid,
+all 5 phase subagents executed for 4 of 5 tasks (DruckerPrager skipped solvers).
+
+**Paired vs vanilla DSv4-flash on same 5 tasks**:
+| task | orch | vanilla | Δ |
+|---|---:|---:|---:|
+| ExampleMandel | 0.926 | 0.319 | +0.608 |
+| AdvancedExampleDruckerPrager | 0.848 | 0.803 | +0.045 |
+| TutorialSneddon | 0.839 | 0.085 | +0.754 |
+| TutorialPoroelasticity | 0.707 | 0.362 | +0.344 |
+| buckleyLeverettProblem | 0.654 | 0.756 | -0.102 |
+| **mean** | **0.795** | 0.465 | **+0.330** |
+
+Wins/losses/ties = 4/1/0. The wins concentrate on tasks where vanilla
+catastrophically failed (Sneddon vanilla 0.085 = wrong-solver-family failure
+mode from XN-008). Per-segment subagents with focused primers produce
+canonical XML patterns the monolithic agent misses.
+
+The one regression (buckleyLeverettProblem -0.102) is the only multiphase
+task; my drivers primer is thin on multiphase BCs. Needs targeted enrichment.
+
+**Compared to prior baselines** (indicative, different conditions):
+- E03 (plugin+ds-v3.2 via OR, 35 tasks): 0.828 mean — orchestrator+DSv4-flash
+  on this 5-task subset reached 0.795, in the same ballpark with a
+  smaller-cheaper model.
+- M1-u (memory variant, n=2): 0.796 ± 0.057 — within noise of orchestrator.
+- A3 (RAG+SR plugin, n=3): 0.524 ± 0.221 — orchestrator clearly above.
+
+-> DAG: I14 (sub-agent orchestration), E25 (orchestrator+DSv4-flash, n=1)
+-> Evidence: docs/XN-017_subagent-orchestrator-results.md (full table),
+   data/eval/results/orch_dsv4_5task_s1/orchestrator_dsv4flash/_summary.json,
+   data/eval/orchestrator_dsv4flash/orch_dsv4_5task_s1/_analysis.json
+-> Decision (provisional): architecture validated. Next: queue full 17-task
+   campaign, enrich multiphase content in drivers primer, dispatch
+   adversarial review on orchestrator code, then declare results.
