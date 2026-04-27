@@ -1031,3 +1031,340 @@ breakdown and detection checklist.
    misc/memory_artifacts/openrouter_contamination_note.md
 -> Decision: reframe paper ablation as primer-format (monolithic vs structured),
    not grounding. Round-2 adversarial review still owed before final declaration.
+
+---
+
+<a id="LOG-2026-04-27-1"></a>
+### 2026-04-27 — Third-harness baseline (OpenHands) added
+
+Concurrent session ("other-coding-agent-baseline") spun up a third
+harness baseline alongside vanilla CC and harness-less direct prompt.
+The motivation is reviewer pre-emption: any "CC adaptations help"
+finding is single-harness without a different general-purpose coding
+agent in the comparison.
+
+**Survey + selection:** `docs/2026-04-27_other-coding-agent-harness-selection.md`.
+Considered OpenHands (All-Hands-AI, formerly OpenDevin), sst/opencode,
+and NousResearch/hermes-agent. Disambiguation: `opencode-ai/opencode` is
+archived (→ `charmbracelet/crush`); Hermes-Agent has persistent-memory +
+skill-loop paradigm that confounds a stateless 17-task eval. **Picked
+OpenHands** — closest shape to vanilla CC (ReAct loop + file/bash/edit
+tools + Docker sandbox), cleanest OpenRouter wiring (LiteLLM env vars),
+and strongest academic-citation footprint.
+
+**Decision memo:** `.copilot/decisions/D-009_other-coding-agent-baseline.md`
+— locks the parity contract (same model, same primer, same 17 tasks,
+same scorer) and lists what is intentionally *not* injected
+(`rag_vanilla.txt`, `real_tool_tail.txt`, repo3 plugin).
+
+**Implementation:** `run/Dockerfile.openhands` (Ubuntu 24.04 + uv +
+openhands v1.15.0 from `uv tool install`, installed under `/opt/uv`
+so non-root `--user` can execute the binary) and
+`scripts/openhands_eval.py` (per-task Docker driver, mirrors
+`scripts/harnessless_eval.py` shape; re-uses
+`runner.contamination.create_filtered_geos_copy` for parity with CC).
+**No edits to `src/runner/*`, `run/AGENTS.md`, `src/runner/agents.py`,
+or `scripts/eval/*`** — concurrent CC session is unaffected.
+
+**Smoketest (oh_smoke_s1 / TutorialSneddon, 1 seed, 600 s):** passed.
+Agent wrote 7 XMLs, AGENTS.md visibly consumed (task list quoted
+GEOS-specific solver names from the primer), 71 OpenHands events
+parsed, **TreeSim = 0.843**. Sole task — no comparison drawn yet
+(vanilla CC no-plugin minimax on Sneddon was ~0.493 in earlier runs,
+but that's n=1 here).
+
+Bugs found + fixed during smoketest: tmp_geos perms (use
+`--tmp-geos-parent` override; default unchanged), `--user` blocked
+openhands binary (rebuilt image with `/opt/uv` install path),
+JSONL parser (OpenHands emits multi-line pretty JSON between
+`--JSON Event--` markers, not strict JSONL; parser updated).
+Token usage missing from v1.15 events — captured as a follow-up.
+
+**Gates remaining before full 17-task launch (per D-009):**
+1. `experiment-designer` review of the runner + parity contract.
+2. `/adversarial-review` on `scripts/openhands_eval.py` and
+   `run/Dockerfile.openhands`.
+3. Then 17 tasks × 1 seed at 1200 s timeout, 4 workers; promote to
+   ≥3 seeds if competitive with vanilla CC.
+
+-> DAG: I12 (third-harness baseline; new node)
+-> Evidence: docs/2026-04-27_other-coding-agent-harness-selection.md,
+   docs/XN-016_openhands-baseline.md,
+   .copilot/decisions/D-009_other-coding-agent-baseline.md
+-> Decision: OpenHands is the third-harness baseline; smoketest
+   passing; pre-campaign gates owed before full run.
+
+---
+
+<a id="LOG-2026-04-27-2"></a>
+### 2026-04-27 — OpenHands `oh_test17_s1` results (1 seed; NOT validated)
+
+Round-2 adversarial review skipped per researcher direction (D-009
+status update). 17-task × 1-seed × 4-worker campaign launched and
+completed in ~26 min. **All parity gates green** for every task that
+ran: `primer_in_context: true` (all 5 fingerprints), `activated_skills:
+[]`. Status counts: 16 success, 1 `failed_no_outputs`
+(`AdvancedExampleViscoDruckerPrager` — agent ran for 282 s but wrote
+zero XML).
+
+**Single-seed result** (vs canonical CC no-plugin minimax run
+`noplug_mm_v2` + `noplug_mm_v2_s2`):
+
+- OH s1 mean TreeSim (failures-as-0, n=17): **0.863 ± 0.126**
+- CC seed-mean (n=17): **0.518 ± 0.304**
+- Paired delta (OH − CC seed-mean): **+0.345 ± 0.348**, sign-test p = 0.049
+- Cleaner per-seed: OH-s1 vs CC-s1 (n=15 common): Δ = +0.300, 12W/3L, p = 0.035
+
+**But** — OH-s1 vs CC-best-of-2-seeds (n=12 with both): wins **6/6**.
+Most of the seed-mean lead comes from CC's bad seeds dragging down its
+mean. CC is highly seed-sensitive on this task set (e.g. EDPWellbore
+0.015→0.932; ThermoporoelasticConsolidation 0.004→0.869). One-seed OH
+cannot beat 2-seed CC.
+
+**Two robust OH wins** across both CC seeds: `pknViscosityDominated`
+(OH 0.995 vs CC ≤0.021 both seeds) and
+`AdvancedExampleViscoDruckerPrager` (OH 0.998 vs CC ≤0.317 both
+seeds). These are CC-consistent-failure tasks where OH succeeds —
+worth a trajectory-level look.
+
+**The +0.345 magnitude is suspicious** — it's the kind of headline
+number that suggests an unmeasured confound. Candidates (per
+RN-004 limitations):
+1. OpenHands' built-in system prompt (un-inspected) may carry
+   coding-agent best-practices CC's lacks.
+2. Primer placement: CC system slot vs OH user-message prefix.
+   minimax may weight user messages more than system messages.
+3. Tool-surface gap: OH ships `task_tracker` + `finish` actions CC
+   doesn't expose. `task_tracker` fired 9× in the smoketest.
+4. Seed luck on a single OH run.
+
+Next cycles (per D-009 validation gates):
+- **Cycle 2**: `oh_test17_s2` (seed 2). If competitive with seed 1,
+  variance estimate becomes meaningful.
+- **Cycle 3**: `oh_test17_s3` if seed 2 holds up.
+- **Cycle 4+**: trajectory inspection on the two robust OH wins
+  + dump of OpenHands' built-in system message via `LITELLM_LOG=DEBUG`
+  on a single task.
+
+-> DAG: I12 first results
+-> Evidence: docs/XN-016_openhands-baseline.md (Results §),
+   data/eval/results/oh_test17_s1/openhands_no_plugin/_summary.json,
+   data/eval/openhands_no_plugin/oh_test17_s1/_summary.json
+-> Decision: positive single-seed signal, NOT validated; queue 2 more
+   seeds before any cross-harness claim. NOT promoting to hub.md SoK.
+
+---
+<a id="LOG-2026-04-27-3"></a>
+## 2026-04-27 — Sub-agent orchestrator design + build (D-010, sleep mode)
+
+User direction (pre-sleep): build a plugin-distributed sub-agent orchestrator
+for GEOS XML authoring; test on 17-task v2 set with DSv4-flash direct
+(`https://api.deepseek.com/anthropic`); preserve concurrent OpenHands campaign
+(don't touch `src/runner/*`, `run/AGENTS.md`, `scripts/eval/*`,
+`data/eval/claude_code_*`, `data/eval/openhands*`).
+
+Design analysis already done pre-sleep:
+`docs/2026-04-27_subagent-architecture-geos.md` — 11 segments collapse to 9;
+6-phase pipeline (bootstrap → mesh → regions+const → solvers → drivers →
+events); subagents return text, orchestrator splices.
+
+This cycle:
+
+1. Confirmed DSv4-flash direct via Anthropic-compatible endpoint:
+   `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` + `ANTHROPIC_API_KEY=$DEEPSEEK_API_KEY` + `--model deepseek-v4-flash`.
+2. Confirmed Claude Code subagents support — markdown files with YAML
+   frontmatter, distributable via plugin's `agents/` dir, parallel-capable,
+   per-subagent model/tools/skills. Spawned via `Agent` tool (formerly Task).
+   Plugin subagents do NOT support `mcpServers`/`hooks`/`permissionMode`
+   frontmatter — but session-level MCP is inherited so geos-rag still works.
+3. Wrote `.copilot/decisions/D-010_subagent-orchestrator.md`. MVP scope:
+   5 subagents (mesh, regions+constitutive, solvers, drivers, events) in
+   5 serial phases — drops Phase-2/Phase-4 parallelism for build-tonight
+   simplicity, can be re-introduced later.
+4. Built `plugin_orchestrator/`:
+   - `.claude-plugin/plugin.json` — geos-rag MCP (same as plugin/).
+   - `agents/{geos-mesh, geos-regions-constitutive, geos-solvers, geos-drivers, geos-events}.md`.
+   - `primers/<segment>.md` — condensed Sphinx docs per segment.
+   - `schema_slices/*.xsd` — auto-extracted complexType slices from
+     `data/GEOS/.../schema.xsd` via `scripts/extract_schema_slice.py`.
+   - `scripts/geos_rag_mcp.py` and `hooks/verify_outputs.py` copied from
+     `plugin/` so the new plugin is self-contained.
+   - `ORCHESTRATOR_SYSTEM.md` — main thread workflow primer.
+5. Built `scripts/orchestrator/run_orchestrator_eval.py` — standalone runner
+   that mounts both plugins (orchestrator at `/plugins/orchestrator`, repo3
+   at `/plugins/repo3`), passes `--plugin-dir /plugins/orchestrator` so the
+   subagents are discoverable, and uses DSv4-flash direct by default with
+   `--model` / `--api-base` / `--api-key-env` flags for OpenRouter fallback.
+   Imports read-only from `src/runner` (contamination, prompts, docker_cmd
+   utility) — does NOT modify `src/runner/*` or other concurrent-run files.
+
+-> DAG: I14 (decompose XML authoring across per-segment subagents)
+-> Evidence (design): docs/2026-04-27_subagent-architecture-geos.md,
+   .copilot/decisions/D-010_subagent-orchestrator.md
+-> Evidence (code): plugin_orchestrator/, scripts/orchestrator/
+-> Decision: build complete; smoketest in progress on TutorialSneddon
+   (background task btwfwsxws). After smoketest passes, launch full 17-task
+   campaign on DSv4-flash, score, write XN-017.
+
+Smoketest plan: TutorialSneddon (RAG-discovered embedded-fracture solver
+diversity per XN-008 makes this a good stress test) and ExampleMandel
+(canonical poromechanics — verifies coupled-solver + Constitutive composite
+authoring). If both pass, the architecture is validated for the broader run.
+
+---
+
+<a id="LOG-2026-04-27-4"></a>
+### 2026-04-27 — OH baseline parity audit + cost/token instrumentation (NOT a "OH > CC" claim)
+
+User questioned the +0.345 magnitude of OH-vs-CC on minimax. Right call.
+Did the audit + added missing instrumentation:
+
+**Specs identical.** md5sums match between
+`experiments_from_mined_specs/` (OH) and `experiments_test36_template/`
+(CC) for `TutorialSneddon`. Same task text reaches both agents.
+
+**Primer file unchanged** since the CC `noplug_mm_v2` run. AGENTS.md
+last commit 2026-04-19; CC ran 2026-04-21; OH ran today. Same bytes.
+
+**Primer DELIVERY differs.** CC: AGENTS.md (with baked GEOS Primer)
++ rag_vanilla.txt + real_tool_tail.txt → system slot. OH: AGENTS.md
+verbatim → first user message. OH does NOT get rag_vanilla.txt or
+real_tool_tail.txt — the latter specifically defends against
+minimax's pseudo-tool-call leakage in CC.
+
+**Custom tools.** Zero. OH events.jsonl shows 0 calls to repo3 plugin
+MCP tools (no `--mcp-config` passed). OH's tool surface includes 3
+built-ins CC doesn't have (TaskTracker, Think, FinishAction).
+
+**Memory.** No carryover; per-task workspace is fresh
+(`shutil.rmtree`); container is `--rm`.
+
+**Token + cost instrumentation added.** OpenHands writes accumulated
+cost + token usage to
+`<work_dir>/.openhands/conversations/<id>/base_state.json` (NOT to
+the streaming `events.jsonl`). Updated
+`scripts/openhands_eval.py:read_oh_token_stats` to read it post-run.
+Backfilled all 17 oh_test17_s1 status.json files. CC's same data is
+in `events.jsonl`'s `type:result` event (`total_cost_usd` + `usage`).
+
+**Cost on minimax** (real provider billing):
+- OH s1: **$1.48** total, **$0.087/task** mean.
+- CC noplug_mm_v2 + s2: **$7.99** total over 34 runs, **$0.235/task** mean.
+- OH ~2.7× cheaper, **driven by cache utilization** (OH on
+  TutorialSneddon: 990k cache_read tokens; CC: 96). This is a CC
+  `claude -p`/OpenRouter cache-config gap, not a fundamental
+  OH advantage.
+
+**Wall-clock**: OH 318 s/task vs CC 261 s/task — OH ~22% slower.
+**Tool calls**: OH 38 vs CC 35 — similar budget.
+
+**Mechanism (KEY FINDING).** CC's bad seeds show classic early-exit
+patterns: ExampleEDPWellbore CC2 = 9 tools / 122 s / 0.015 TreeSim;
+ExampleIsothermalLeakyWell CC2 = 2 / 203 s / 0.110;
+AdvancedExampleViscoDruckerPrager CC1 = 11 / 136 s / 0.129. These
+match the documented `redacted_thinking → end_turn` failure mode
+from XN-003/004/010 — minimax ends the turn after few tool calls
+without writing files. CC ships `real_tool_tail.txt` *specifically*
+as a defense.
+
+OH's tool counts across all 17 tasks: 17–63 (median 37).
+**OH never triggers the early-exit pattern.** OH's "win" is largely
+CC failing, not OH succeeding more. **Best-of-CC-seeds vs OH on the
+12 tasks with both CC seeds: 6 wins / 6 wins.**
+
+**Honest reframe of LOG-2026-04-27-2's headline:**
+- ON MINIMAX: OH cheaper (cache util) + more reliable (no early-exit).
+  Per-task ceiling competitive with CC's better seeds.
+- The +0.345 mean delta is dominated by CC's bad-seed failures, not
+  OH being smarter.
+- This is a "OH > CC on minimax" claim, NOT a "OH > CC" claim.
+  Cross-model replication on a non-failing model is needed to support
+  any general harness comparison.
+
+**Bug fixed**: runner's `n_xml_files` used non-recursive glob; missed
+agent outputs in nested subdirs. 1 of 17 s1 tasks reclassified from
+`failed_no_outputs` to `success` post-hoc (scorer always globbed
+recursively, so TreeSim score 0.998 was correct all along).
+
+**Next cycles**:
+- Cycle 2 (oh_test17_s2): in flight, minimax. OH variance estimate.
+- Cycle 3 onward: switch to DSv4-flash via DeepSeek-direct (cheaper,
+  faster, no rate-limit; per `docs/2026-04-27_dsv4_migration.md`).
+  Cross-model replication tests whether OH advantage holds on a
+  model that doesn't have CC+minimax's specific failure mode.
+
+-> DAG: I12 (mechanism characterization)
+-> Evidence: docs/XN-016 §"Parity audit", §"Resource comparison",
+   §"Mechanism (preliminary)", §"Honest reframe";
+   data/eval/openhands_no_plugin/oh_test17_s1/*/status.json (backfilled)
+-> Decision: do NOT report "OH beats CC" without DSv4 cross-model
+   validation. Frame any minimax-only comparison as "robustness on
+   minimax" + "cache-utilization cost effect".
+
+---
+<a id="LOG-2026-04-27-4"></a>
+## 2026-04-27 — Orchestrator smoketest iterations (sleep cycle 2)
+
+**v1 (TutorialSneddon, ORCHESTRATOR_SYSTEM.md as initial):** orchestrator
+bypassed delegation. Used Write tool to author Sneddon_base.xml directly at
+event 86. RAG searches for SurfaceElementRegion, NormalTraction etc. were
+self-authoring research, not bootstrap-discovery. Zero Agent tool calls.
+
+**Fix #1 — disable Write + harden prompt:**
+1. Added `Write` to `DISALLOWED_TOOLS` in run_orchestrator_eval.py.
+2. Updated ORCHESTRATOR_SYSTEM.md with explicit "Write disabled, use Bash cp".
+
+**v2 (TutorialSneddon, fix #1):** still failed. Bypassed delegation by copying
+6 different Sneddon variants into /workspace/inputs/ (3 strategies × 2 variants),
+treating the task as multi-strategy authoring. Zero Agent tool calls. Model
+appears to interpret Sneddon's multi-solver-family nature as an authoring
+challenge, not an orchestration challenge.
+
+**Fix #2 — overhaul system prompt with strict numbered phases + "anti-pattern hall of shame":**
+- "At least 5 Agent tool calls must appear in your transcript."
+- "Pick the FIRST returned result. Do not run multiple searches."
+- "ONE bootstrap copy. Not two. Not five. ONE."
+- Anti-patterns explicitly listed.
+
+**v3 (ExampleMandel, fix #2):** in progress. Different task choice — Mandel
+is canonical poromechanics with one solution path, less invitation to
+multi-strategy thinking. Container 716d1193f015 (background bunjm7fnw).
+Early signal: "Good, bootstrap copied. Now let me read it to build the name
+registry, then spawn the first subagent." — explicit workflow recognition.
+Awaiting first Agent call.
+
+-> DAG: I14
+-> Evidence: ORCHESTRATOR_SYSTEM.md (revised), checkpoint.md cycle 2.
+-> Decision (provisional): if v3 spawns ≥3 subagents → run full 17-task on
+   DSv4-flash. If v3 still has 0 Agent calls → switch to minimax-m2.7 fallback
+   or document negative finding and stop.
+
+---
+<a id="LOG-2026-04-27-5"></a>
+## 2026-04-27 — DSv4-flash orchestrator timing observation
+
+Smoketest v3 (Mandel) timing as of 13:25Z (12 min in):
+- Phase 0 (bootstrap cp + read): ~3 min
+- Phase 1 (mesh subagent + splice): ~5 min
+- Phase 2 (regions-constitutive subagent): in progress, 5+ min and counting
+
+**DSv4-flash inference is slow**. Each subagent takes ~5-10 min including its
+thorough doc/example research. Pipeline projection: 5 subagents × ~6 min mean
+= ~30 min/task serial. With 2 workers and 17 tasks, full campaign ~4-5 hours.
+
+**Decision options**:
+- Option A: launch full 17-task with --workers 2 --timeout 2400. Total ~5h.
+- Option B: launch reduced 5-task set first (Mandel + Sneddon + a few solid
+  mechanics + 1 multiphase) to validate broader physics before committing
+  to full campaign. ~75-90 min.
+- Option C: launch full but parallelize harder (--workers 4). Total ~2.5h.
+  Risk: 4 concurrent docker containers + 5 subagent context windows each
+  = heavy memory/network usage; might trigger DeepSeek rate limits.
+
+Choosing **Option B** for tonight's autonomous budget (cycle remaining
+~5h max). 5 tasks gives a solid initial signal across physics families.
+Full 17-task run is queued for the user's return.
+
+5-task set: TutorialSneddon (fracture), ExampleMandel (poromechanics),
+TutorialPoroelasticity (poromechanics + ICs), AdvancedExampleDruckerPrager
+(plasticity), buckleyLeverettProblem (multiphase).
