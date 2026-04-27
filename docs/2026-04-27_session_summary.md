@@ -254,33 +254,83 @@ baseline at this n.
 - `GEOS_HOOK_XMLLINT` — enable hook schema validation
 - `GEOS_HOOK_SCHEMA_PATH` — override schema path
 
-## Headline result table (everything we know after this session)
+## Headline result table (final)
 
-Mean treesim, 17-task test set unless noted. Seed counts in parens.
+Mean treesim ± std dev across seeds, 17-task test set, all 17 tasks scored
+unless noted. n is seed count.
 
-| Condition | Model | n_seeds | Mean treesim | Notes |
+### Group A — Vanilla CC primer ablation (DSv4-flash, DeepSeek-direct)
+
+| Condition | n | Mean | σ | Notes |
+|---|---:|---:|---:|---|
+| Vanilla CC + **full** primer | 3 | 0.640 | 0.008 | s1=0.647, s2=0.641, s3=0.632 (16/17 scored on s3 — disk-full incident clobbered 1 task) |
+| Vanilla CC + **minimal** primer | 3 | **0.671** | 0.014 | s1=0.687, s2=0.666, s3=0.661 (17/17 each) |
+
+**Minimal primer wins by +0.031.** Tight σ on both — high-confidence delta.
+Surprising because minimal primer is ~38% the size of the full primer
+(7868 vs 20807 chars in the assembled system prompt). Suggests the
+bulky baked-in primer carries little information beyond what the agent
+infers from RAG-via-Bash + the smaller primer's structural skeleton.
+
+### Group B — "Best setup" stack (CC + RAG + hook + xmllint MCP tool + xmllint hook + minimal primer)
+
+| Condition | n | Mean | σ | Notes |
+|---|---:|---:|---:|---|
+| Best setup, **minimax m2.7** | 1 | 0.622 | — | 17/17 |
+| Best setup, **DSv4-flash** | 3 | 0.628 | 0.034 | s1=0.617, s2=0.666, s3=0.600 (17/17 each) |
+
+**Best setup does NOT beat vanilla CC + minimal primer + DSv4-flash on
+quality** (0.628 vs 0.671). All 4 best-setup campaigns hit 17/17
+completion vs vanilla's 17/17 at the headline — the xmllint hook
+backstop reliably forces every run to end with parseable + schema-valid
+XML. But on average score across the scored tasks, the plugin stack
+under-performs vanilla on this model.
+
+### Group C — pre-session baselines (kept for cross-reference)
+
+| Condition | Model | n | Mean | Notes |
 |---|---|---:|---:|---|
-| Vanilla CC + full primer | minimax m2.7 | 3 | 0.558 ± 0.087 | range 0.45-0.66 |
-| Vanilla CC + minimal primer | minimax m2.7 | 1 | 0.625 | within minimax variance |
-| Vanilla CC + full primer | DSv4-flash | 1 | 0.647 | 17/17 scored |
+| Vanilla CC + full primer | minimax m2.7 | 3 | 0.558 ± 0.087 | wide range 0.45-0.66 |
+| Vanilla CC + minimal primer | minimax m2.7 | 1 | 0.625 | within minimax seed variance |
+| Vanilla CC + full primer | DSv4-flash | 1 | 0.647 | (now the s1 entry of group A) |
 | CC + RAG + hook | minimax m2.7 | 4 (existing) | ~0.50 | from prior data |
 | CC + RAG + hook + xmllint primer | minimax m2.7 | 1 | 0.556 | 17/17 |
 | CC + RAG + hook + xmllint hook | minimax m2.7 | 1 | 0.567 | 17/17 |
 | CC + RAG + hook + memory (M1-u) | minimax m2.7 | 3 (existing) | varies | best of plugin variants |
 
-## Open campaigns at end of session
+### Take-aways
 
-In flight at the time of writing this doc:
+1. **DSv4-flash is the clear model winner** at ~10× lower cost, ~2×
+   higher TPS than minimax m2.7 (when routed via DeepSeek-direct).
+   Quality is comparable or better.
+2. **The minimal primer is at least as good as the full primer**, with
+   substantially less prompt text to process. Strong case to default to it.
+3. **Schema validation backstop reliably forces completion** but does
+   not raise quality on already-completing tasks. Treesim depends on
+   correct semantic structure, not just well-formedness — xmllint
+   catches the latter, not the former.
+4. **The plugin stack underperforms vanilla** on DSv4-flash on this
+   17-task set. The plugin's RAG and memory mechanisms were tuned to
+   minimax behavior; on a different model they're not free wins. Worth
+   re-running the full ablation matrix on DSv4 if we want to claim
+   anything about the plugin's contribution under the new model.
 
-- **Primer ablation on DSv4 vanilla CC** — full primer s2/s3 + minimal
-  primer s1/s2/s3 (5 campaigns, workers=4 each). Decides which primer
-  to anchor the canonical "best" setup on. ETA ~30 min wall.
-- **(planned, blocked on the above)** "Best setup" campaign:
-  `claude_code_repo3_plugin_xmllint_all` (RAG + hook + xmllint MCP
-  tool + xmllint hook + winning primer) at 1 seed minimax + 3 seeds
-  DSv4-flash on the 17-task test set.
+## Disk hygiene incident & mitigation
 
-This document will be updated with those results when they land.
+Mid-session, the root filesystem hit 100% (`No space left on device`)
+during the parallel best-setup launch. Cause: 293 GB of `.uv_cache`
+directories accumulated across the eval tree — every per-task
+workspace pulled chromadb + pydantic + grpcio + 100s of MB of
+dependencies. Cleanup:
+
+- Killed all running wrappers + docker containers
+- `find /home/matt/sci/repo3/data/eval -maxdepth 4 -name .uv_cache -type d -delete` (regenerable on next launch)
+- Re-launched best-setup campaigns with `--results-root-dir
+  /data/matt/repo3_eval_results` so future writes target the 140 TB
+  `/data` volume, not the root fs
+
+Followup: consider auto-cleaning `.uv_cache` per task after success in
+the runner, or sharing a single uv cache via `UV_CACHE_DIR` mount.
 
 ## Open work / followups (not done this session)
 
