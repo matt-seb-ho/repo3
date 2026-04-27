@@ -279,12 +279,40 @@ infers from RAG-via-Bash + the smaller primer's structural skeleton.
 | Best setup, **minimax m2.7** | 1 | 0.622 | — | 17/17 |
 | Best setup, **DSv4-flash** | 3 | 0.628 | 0.034 | s1=0.617, s2=0.666, s3=0.600 (17/17 each) |
 
-**Best setup does NOT beat vanilla CC + minimal primer + DSv4-flash on
-quality** (0.628 vs 0.671). All 4 best-setup campaigns hit 17/17
-completion vs vanilla's 17/17 at the headline — the xmllint hook
-backstop reliably forces every run to end with parseable + schema-valid
-XML. But on average score across the scored tasks, the plugin stack
-under-performs vanilla on this model.
+### Group B' — Best setup + M1-u memory cheatsheet (everything stacked)
+
+Adds the M1-u memory primer (the hero of the original D-008 ablation)
+on top of the Group B stack. Same minimal base primer; agent variant
+`claude_code_repo3_plugin_xmllint_all_m1u`.
+
+| Condition | n | Mean | σ | Notes |
+|---|---:|---:|---:|---|
+| Best+M1-u, **minimax m2.7** | 1 (in flight) | tbd | — | 16/17 done at writeup time |
+| Best+M1-u, **DSv4-flash** | 3 | 0.617 | 0.012 | s1=0.617, s2=0.629, s3=0.606 (17/17 each) |
+
+**Memory primer does not visibly help on DSv4-flash** (0.617 with memory
+vs 0.628 without — within seed variance, σ ≈ 0.034 vs 0.012). The M1-u
+primer was the hero of the D-008 ablation on minimax, but the gain
+appears not to transfer to DSv4. Possible explanations:
+
+- The memory primer's content (named GEOS solver families, anti-pattern
+  list) may be redundant with what DSv4 already infers from its better
+  base prior.
+- Or the minimax win was partly a "longer-prompt-helps" effect that
+  doesn't show up in DSv4's training distribution.
+- 3 seeds is enough to bound the effect at modest size; the 1.1pp gap
+  is well inside one seed's variance.
+
+Both Group B and Group B' STILL underperform vanilla DSv4 + minimal
+primer (0.671). All Group B' DSv4 campaigns hit 17/17 completion (the
+xmllint hook backstop continues to force well-formedness).
+
+**Working conclusion**: on DSv4-flash, the simplest harness (vanilla
+CC + minimal primer) outscores every plugin variant we've tested by
+~4-5pp. The plugin's RAG / hook / memory stack was tuned to minimax;
+its components don't compose to a net win on DSv4. The xmllint backstop
+is universal value (100% completion across all conditions) but doesn't
+raise quality.
 
 ### Group C — pre-session baselines (kept for cross-reference)
 

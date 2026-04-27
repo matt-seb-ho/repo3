@@ -66,6 +66,22 @@ AGENTS: dict[str, dict] = {
         "plugin_enabled": True,
         "xmllint_mcp_enabled": True,
     },
+    # Same as `_xmllint_all`, but also stacks the M1-u memory cheatsheet
+    # (the hero memory primer from the D-008 ablation). This is the
+    # "everything stacked" condition — RAG + parse-check hook + xmllint
+    # MCP tool + xmllint hook + memory cheatsheet + (caller's choice of
+    # base primer via --geos-primer-path). Use to test whether the
+    # memory primer's contribution is additive with the xmllint stack.
+    "claude_code_repo3_plugin_xmllint_all_m1u": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_xmllint_all_m1u",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "xmllint_mcp_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_m1u.md",
+    },
     # Plugin + frozen pre-learned cheatsheet (memory experiment, D-001).
     # Same as claude_code_repo3_plugin but prepends plugin/cheatsheet.md to
     # the system prompt. Cheatsheet is derived from a held-out train subset
