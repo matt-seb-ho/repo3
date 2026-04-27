@@ -1,12 +1,10 @@
-"""Experiment runner library.
+"""GEOS eval harness package.
 
-Reusable pieces used by ``scripts/run_experiment.py``:
-
-- ``contamination`` — determine which GEOS source files must be hidden from
-  the agent for a given task, and materialise a sanitized (hardlink-based)
-  copy of the GEOS tree that omits them.
+This package exists to keep individual modules small (no ~3500-line wall).
+Importing this package runs the env-var aliasing that legacy callers depend on
+(see :mod:`runner._env_bootstrap`).
 """
 
-from . import contamination
+from . import _env_bootstrap  # noqa: F401  -- side-effect import
 
-__all__ = ["contamination"]
+__all__ = ["_env_bootstrap"]

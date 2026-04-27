@@ -108,11 +108,17 @@ uv run python scripts/eval/judge_one.py \
 repo3/
 ├── docs/                   you are here
 ├── src/
-│   ├── runner/             runner library (contamination + sanitized GEOS copy)
+│   ├── runner/             eval-harness package: orchestrator, docker_cmd,
+│   │                       prompts, agents, contamination, dashboard, ...
+│   │                       (was a 3500-line monolith in scripts/; refactored
+│   │                       into modules 2026-04-27 — see XN-008 / git history)
 │   └── eval/               evaluation library (XMLTreeSim, metrics, LLM judge)
 ├── scripts/
-│   ├── run_experiment.py   CLI — launches agents in Docker
+│   ├── run_experiment.py   CLI shim — imports runner.cli.main and runs it
 │   ├── run_and_eval.py     CLI — runs experiments then scores them
+│   ├── api_probe.py        CLI — quick latency probe for OpenRouter / OpenAI /
+│   │                       DeepSeek / Anthropic, useful for triaging a hang
+│   ├── analysis/           Cross-run analysis (file access, tool usage)
 │   └── eval/               CLI wrappers around src.eval
 ├── run/                    runtime assets: AGENTS.md (system prompt) + Dockerfile
 ├── plugin/                 Claude Code plugin (skills + GEOS RAG MCP server)
@@ -129,12 +135,19 @@ repo3/
 Three peer concerns, intentionally decoupled:
 
 - **`plugin/`** — the agent's customization surface (skills + RAG MCP).
-- **`scripts/run_experiment.py` + `src/runner/`** — the harness.
-  Produces per-task workspaces with `inputs/` + logs + `status.json`.
+- **`src/runner/`** (driven by `scripts/run_experiment.py`) — the harness.
+  Builds per-task Docker workspaces, wires up MCP, streams the agent's
+  events, writes `inputs/` + logs + `status.json`. Internal split: `cli`
+  (argparse + main loop), `orchestrator` (per-task driver), `task`
+  (single-attempt runner), `docker_cmd`/`claude_settings` (container +
+  MCP wiring), `prompts` (system-prompt assembly + retry prompts),
+  `agents` (the variant catalogue), `contamination` (block-list +
+  hardlink sandbox), `tool_counts`/`events`/`cost` (event-stream
+  parsing), `dashboard` (live-status web UI).
 - **`src/eval/` + `scripts/eval/`** — post-hoc analysis. Reads task
   workspaces, scores XML, computes agent-behaviour metrics.
 
 The runner never imports `src.eval`; the evaluator never imports
-`src.runner`. Contamination is a runner concern (it shapes what the
-agent sees) so it lives under `src/runner/`. `scripts/run_and_eval.py`
+`runner`. Contamination is a runner concern (it shapes what the agent
+sees) so it lives in `runner.contamination`. `scripts/run_and_eval.py`
 chains them via subprocess, preserving the process boundary.

@@ -8,12 +8,14 @@ dashboard / later-stage evaluator can read.
 
 Layout:
 
-- `scripts/run_experiment.py` — CLI entrypoint (what you actually run).
-- `src/runner/contamination.py` — block-list logic + sanitized GEOS copy.
+- `scripts/run_experiment.py` — CLI shim (what you actually run). Just imports `runner.cli.main` and calls it.
+- `src/runner/` — the runner package (`runner.cli`, `runner.agents`, `runner.orchestrator`, `runner.task`, `runner.docker_cmd`, `runner.prompts`, `runner.tool_counts`, `runner.events`, `runner.claude_settings`, `runner.cost`, `runner.process_mgr`, `runner.contamination`, `runner.dashboard.{snapshot,server}`).
+- `src/runner/prompts/` — long prompt strings (`rag_instructions.txt`, `rag_vanilla.txt`, `memory_instructions.txt`, `pseudo_tool_retry.txt`, `no_outputs_retry.txt`, `real_tool_tail.txt`, `native_plugin_prefix.txt`) loaded at import time and combined by `runner.prompts.build_system_prompt`.
+- `src/runner/dashboard/template.html` — the live-status dashboard HTML.
 - `run/AGENTS.md` — agent system prompt (read by the script at startup).
 - `run/Dockerfile` — image the runner invokes (`docker build -t geos-eval run/`).
 
-Three agents are wired in (`AGENTS` dict in `run_experiment.py`):
+Three runners are wired in (`AGENTS` dict in `src/runner/agents.py`):
 
 | Key | Runner | Purpose |
 |---|---|---|
@@ -196,6 +198,31 @@ sandbox.
 
 ## Adding a new agent
 
-Register it in `AGENTS` with `runner="acpx"` or `runner="claude_native"`,
-an `api_key_env`, and (for native) `requires_rag` if it should block on MCP
-preflight. Docker image stays the same; add any new CLI in `run/Dockerfile`.
+Edit `src/runner/agents.py` and add a new key to the `AGENTS` dict with
+`runner="acpx"` or `runner="claude_native"`, an `api_key_env`, and (for
+native) `requires_rag` if it should block on MCP preflight. The
+`plugin_enabled` flag controls whether the system prompt's GEOS RAG
+instruction block (in `src/runner/prompts/rag_instructions.txt`) is
+included or replaced with the vanilla-fallback variant
+(`rag_vanilla.txt`). Docker image stays the same; add any new CLI
+binaries in `run/Dockerfile`.
+
+## Probing model/provider latency
+
+`scripts/api_probe.py` is a small CLI for sending a tiny prompt to one or
+more `<provider>:<model>` targets and reporting per-request latency,
+output tokens, and any error class. Use it before launching a run when
+the harness is hanging and you need to disambiguate "the model is slow"
+from "the provider is rate-limiting us":
+
+```bash
+python scripts/api_probe.py \
+    --target openrouter:minimax/minimax-m2.7 \
+    --target openrouter:deepseek/deepseek-v4-flash \
+    --target deepseek:deepseek-v4-flash \
+    --runs 3
+```
+
+Supported providers: `openrouter`, `deepseek`, `openai`, `anthropic`. Keys
+are read from `.env` (`OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`,
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`).

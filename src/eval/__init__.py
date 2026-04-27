@@ -10,7 +10,7 @@ Ported from the geos_agent repository. Provides:
 - ``llm_judge`` — OpenAI/OpenRouter LLM-as-judge evaluator.
 - ``token_usage`` — aggregate billed tokens from JSONL/JSON logs.
 
-Contamination helpers live in ``src.runner.contamination`` — they are used
+Contamination helpers live in ``runner.contamination`` — they are used
 by the experiment runner, not the post-hoc evaluator.
 """
 
