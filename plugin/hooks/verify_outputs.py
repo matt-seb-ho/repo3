@@ -3,7 +3,8 @@
 
 Fires when the Claude Code agent ends its turn. Checks that
 ``/workspace/inputs/`` contains at least one ``.xml`` file and that every XML
-file parses. If either check fails, emits ``decision: "block"`` on stdout so
+file parses. Optionally also schema-validates against the GEOS XSD via
+``xmllint``. If any check fails, emits ``decision: "block"`` on stdout so
 Claude Code re-enters the agent with the reason as feedback; otherwise allows
 the stop.
 
@@ -18,6 +19,13 @@ Environment knobs:
     GEOS_HOOK_SELF_REFLECT If ``1``/``true``/``yes``, after the XML passes the
                            static checks, also block once with a self-review
                            prompt (off by default — see XN-010 section 6.3).
+    GEOS_HOOK_XMLLINT      If ``1``/``true``/``yes``, run ``xmllint --schema``
+                           against each XML after the parse check; block with
+                           the schema errors as feedback if validation fails.
+                           Off by default; counts toward the same retry
+                           budget as the parse-error block.
+    GEOS_HOOK_SCHEMA_PATH  Path to schema.xsd inside the container. Defaults to
+                           ``/geos_lib/src/coreComponents/schema/schema.xsd``.
 
 Input JSON is read from stdin; see Claude Code Stop-hook schema. We only read
 ``stop_hook_active`` to short-circuit nested stops; the rest we do not need.
@@ -26,10 +34,16 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
+
+DEFAULT_SCHEMA_PATH = Path("/geos_lib/src/coreComponents/schema/schema.xsd")
+MAX_ERRORS_PER_FILE = 8
+MAX_FILES_REPORTED = 4
 
 
 def _envflag(name: str, default: bool = False) -> bool:
@@ -150,6 +164,75 @@ def _first_parse_error(paths: list[Path]) -> tuple[Path, str] | None:
     return None
 
 
+def _xmllint_validate(
+    paths: list[Path],
+    schema_path: Path,
+    inputs_dir: Path,
+) -> str | None:
+    """Schema-validate every XML; return formatted error feedback or None.
+
+    Runs ``xmllint --schema <schema> --noout <file>`` per file; xmllint
+    exits 0 when the file validates and non-zero with one error per line
+    on failure. We collect errors, summarise, and return a feedback
+    string suitable for the agent. Returns None when every file validates
+    or when xmllint is unavailable (we don't penalise the agent for our
+    own infra gap).
+    """
+    if not schema_path.exists():
+        return None
+    if shutil.which("xmllint") is None:
+        return None
+    files_with_errors: list[tuple[Path, list[str]]] = []
+    for p in paths:
+        try:
+            res = subprocess.run(
+                ["xmllint", "--schema", str(schema_path), "--noout", str(p)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            continue
+        if res.returncode == 0:
+            continue
+        # xmllint prints errors to stderr, one per line. The summary line
+        # ``<file> fails to validate`` follows; drop it.
+        err_lines = []
+        for line in res.stderr.splitlines():
+            line = line.strip()
+            if not line: continue
+            if line.endswith("fails to validate"): continue
+            if line.endswith("validates"): continue
+            # Strip the absolute file prefix the agent already knows
+            try:
+                rel = p.relative_to(inputs_dir)
+                line = line.replace(f"{p}:", f"{rel}:")
+            except (ValueError, AttributeError):
+                pass
+            err_lines.append(line)
+        if err_lines:
+            files_with_errors.append((p, err_lines[:MAX_ERRORS_PER_FILE]))
+    if not files_with_errors:
+        return None
+
+    # Build feedback. Report up to MAX_FILES_REPORTED files; reference
+    # the rest by count if there are more.
+    parts = []
+    for p, errs in files_with_errors[:MAX_FILES_REPORTED]:
+        try:
+            rel = p.relative_to(inputs_dir)
+        except (ValueError, AttributeError):
+            rel = p
+        joined = "\n  ".join(errs)
+        parts.append(f"- {rel}:\n  {joined}")
+    extra = len(files_with_errors) - MAX_FILES_REPORTED
+    summary = "\n".join(parts)
+    if extra > 0:
+        summary += f"\n- ...plus {extra} more file(s) with schema errors."
+    return summary
+    return None
+
+
 def main() -> None:
     inputs_dir = _inputs_dir()
 
@@ -210,6 +293,35 @@ def main() -> None:
             retries_so_far=retries,
             detail=f"{rel}: {detail}",
         )
+
+    if _envflag("GEOS_HOOK_XMLLINT"):
+        schema_override = os.environ.get("GEOS_HOOK_SCHEMA_PATH")
+        schema_path = Path(schema_override) if schema_override else DEFAULT_SCHEMA_PATH
+        feedback = _xmllint_validate(xml_files, schema_path, inputs_dir)
+        if feedback is not None:
+            retries = _bump_counter(counter)
+            if retries > max_retries:
+                _allow_stop(
+                    inputs_dir,
+                    reason_category="schema_error_max_retries",
+                    retries_so_far=retries,
+                )
+            _block(
+                "Stop blocked by verify_outputs hook: one or more XML files "
+                f"under {inputs_dir} fail GEOS schema validation. "
+                f"Schema: {schema_path}. Errors:\n\n"
+                f"{feedback}\n\n"
+                "Fix the offending element/attribute names against the schema "
+                "(do NOT guess again — `xmllint` lists expected alternatives "
+                "for unexpected-element errors and required attribute names "
+                "for missing-attribute errors). Re-validate locally with\n"
+                f"  xmllint --schema {schema_path} --noout <file>.xml\n"
+                "before ending your turn.",
+                inputs_dir=inputs_dir,
+                reason_category="schema_error",
+                retries_so_far=retries,
+                detail=feedback[:500],
+            )
 
     if _envflag("GEOS_HOOK_SELF_REFLECT"):
         flag = counter.parent / ".verify_reflected"

@@ -60,6 +60,7 @@ def write_claude_mcp_config(
     blocked_rst_relpaths: list[str],
     enable_memory: bool = False,
     enable_noop: bool = False,
+    enable_xmllint: bool = False,
     memory_variant: str = "lexical",  # "lexical" (memory_mcp.py) or "embed" (memory_mcp_embed.py)
     memory_items_host_path: Path | None = None,
     memory_embed_index_host_path: Path | None = None,
@@ -151,6 +152,22 @@ def write_claude_mcp_config(
             ],
             "env": {
                 "CLAUDE_PLUGIN_ROOT": str(CONTAINER_PLUGIN_DIR),
+            },
+        }
+    if enable_xmllint:
+        servers["xmllint"] = {
+            "type": "stdio",
+            "command": "uv",
+            "args": [
+                "run",
+                "--script",
+                str(CONTAINER_PLUGIN_DIR / "scripts" / "xmllint_mcp.py"),
+            ],
+            "env": {
+                "CLAUDE_PLUGIN_ROOT": str(CONTAINER_PLUGIN_DIR),
+                # Fixed inside the container — the schema lives next to the
+                # filtered GEOS source mount.
+                "XMLLINT_SCHEMA_PATH": "/geos_lib/src/coreComponents/schema/schema.xsd",
             },
         }
     mcp_config_path = result_dir / CONTAINER_MCP_CONFIG_PATH.name

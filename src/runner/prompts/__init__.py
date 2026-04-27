@@ -29,11 +29,28 @@ _PSEUDO_TOOL_RETRY = _load("pseudo_tool_retry.txt")
 _NO_OUTPUTS_RETRY = _load("no_outputs_retry.txt")
 
 
-def load_agents_md() -> str:
+def load_agents_md(strip_baked_primer: bool = False) -> str:
+    """Load run/AGENTS.md.
+
+    AGENTS.md historically embedded a `# GEOS Primer` section after the
+    operational role/rules. ``build_system_prompt`` suppresses any external
+    primer when this section is already present, so the primer file passed
+    via ``--geos-primer-path`` was effectively never inlined.
+
+    Pass ``strip_baked_primer=True`` to drop the embedded primer block (the
+    `# GEOS Primer` heading and everything after it). The external primer
+    file then takes its place. This is what enables a real primer ablation.
+    """
     path = RUN_ASSETS_DIR / "AGENTS.md"
     if not path.exists():
         raise FileNotFoundError(f"AGENTS.md not found at {path}")
-    return path.read_text()
+    text = path.read_text()
+    if strip_baked_primer:
+        marker = "\n# GEOS Primer"
+        idx = text.find(marker)
+        if idx >= 0:
+            text = text[:idx].rstrip() + "\n"
+    return text
 
 
 def load_task_instructions(task_dir: Path) -> str:

@@ -195,6 +195,7 @@ def run_task(
                 blocked_rst_relpaths=blocked_rst_relpaths,
                 enable_memory=bool(agent.get("memory_enabled", False)),
                 enable_noop=bool(agent.get("noop_mcp_enabled", False)),
+                enable_xmllint=bool(agent.get("xmllint_mcp_enabled", False)),
                 memory_variant=str(agent.get("memory_variant", "lexical")),
                 memory_items_host_path=(
                     Path(agent["memory_items_path"]).resolve()

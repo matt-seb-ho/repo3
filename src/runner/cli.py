@@ -194,7 +194,19 @@ def main() -> None:
         default=DEFAULT_GEOS_PRIMER_PATH,
         help=f"GEOS primer markdown inlined into the agent system prompt; "
              f"{CONTAINER_GEOS_PRIMER_PATH} is not created in task workspaces "
-             f"(default: {DEFAULT_GEOS_PRIMER_PATH})",
+             f"(default: {DEFAULT_GEOS_PRIMER_PATH}). "
+             f"NOTE: only takes effect when AGENTS.md does NOT already contain "
+             f"a `# GEOS Primer` section, OR when --strip-baked-primer is set.",
+    )
+    parser.add_argument(
+        "--strip-baked-primer",
+        action="store_true",
+        default=False,
+        help="Strip the embedded `# GEOS Primer` section out of run/AGENTS.md "
+             "before injecting it as system context, so the file passed via "
+             "--geos-primer-path is actually inlined. Use this for any primer "
+             "ablation (the default AGENTS.md already contains the standard "
+             "primer baked in, which suppresses the external primer file).",
     )
     parser.add_argument(
         "--claude-model",
@@ -346,7 +358,7 @@ def main() -> None:
             for task in tasks
         }
 
-    agents_context = load_agents_md()
+    agents_context = load_agents_md(strip_baked_primer=args.strip_baked_primer)
     combos = [(task, agent) for task in tasks for agent in args.agents]
 
     # Show where results will land

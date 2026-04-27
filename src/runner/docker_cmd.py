@@ -153,6 +153,8 @@ def build_claude_native_command(
         "-e", "GEOS_HOOK_DISABLE",
         "-e", "GEOS_HOOK_MAX_RETRIES",
         "-e", "GEOS_HOOK_SELF_REFLECT",
+        "-e", "GEOS_HOOK_XMLLINT",
+        "-e", "GEOS_HOOK_SCHEMA_PATH",
     ]
     if enable_plugin:
         cmd += [

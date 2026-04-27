@@ -29,6 +29,43 @@ AGENTS: dict[str, dict] = {
         "requires_rag": True,
         "plugin_enabled": True,
     },
+    # xmllint ablation: CC + RAG + hook with the xmllint-aware primer
+    # variant inlined. Caller must pass `--strip-baked-primer
+    # --geos-primer-path plugin/GEOS_PRIMER_xmllint.md`.
+    # The Stop hook still does the existing parse check (NOT schema
+    # validation) — this cell isolates the primer treatment.
+    "claude_code_repo3_plugin_xmllint_primer": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_xmllint_primer",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+    },
+    # xmllint ablation: CC + RAG + hook with the Stop hook also running
+    # `xmllint --schema` after the parse check. Caller must export
+    # `GEOS_HOOK_XMLLINT=1` in the host env so the runner forwards it
+    # into the container. Primer is the standard one (no special path).
+    "claude_code_repo3_plugin_xmllint_hook": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_xmllint_hook",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+    },
+    # Both treatments stacked + the explicit MCP validate tool. Caller
+    # must pass `--strip-baked-primer --geos-primer-path
+    # plugin/GEOS_PRIMER_xmllint.md` AND export `GEOS_HOOK_XMLLINT=1`.
+    "claude_code_repo3_plugin_xmllint_all": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_repo3_plugin_xmllint_all",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "xmllint_mcp_enabled": True,
+    },
     # Plugin + frozen pre-learned cheatsheet (memory experiment, D-001).
     # Same as claude_code_repo3_plugin but prepends plugin/cheatsheet.md to
     # the system prompt. Cheatsheet is derived from a held-out train subset
@@ -181,6 +218,21 @@ AGENTS: dict[str, dict] = {
     "claude_code_no_plugin": {
         "runner": "claude_native",
         "results_dir": DATA_DIR / "eval" / "claude_code_no_plugin",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": False,
+    },
+    # Vanilla CC, but the system prompt's GEOS Primer block is replaced with
+    # the much shorter `plugin/GEOS_PRIMER_minimal.md`. Ablation against
+    # `claude_code_no_plugin` to measure whether the bulky primer carries its
+    # weight. Caller MUST pass `--strip-baked-primer --geos-primer-path
+    # plugin/GEOS_PRIMER_minimal.md` for the swap to actually take effect —
+    # the AGENTS.md bake-in suppresses the external primer otherwise (see
+    # docs/2026-04-27_4condition-file-tool-comparison.md §"minimal primer").
+    "claude_code_no_plugin_minprimer": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "claude_code_no_plugin_minprimer",
         "api_key_env": "ANTHROPIC_AUTH_TOKEN",
         "model": DEFAULT_CLAUDE_MODEL,
         "requires_rag": False,
