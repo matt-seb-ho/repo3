@@ -129,6 +129,37 @@ def load_agents_md() -> str:
     return AGENTS_MD_PATH.read_text()
 
 
+def load_primer(primer_path: Path) -> str:
+    """Load any primer markdown verbatim.
+
+    Use this instead of ``load_agents_md`` when ``--primer-path`` is set
+    to anything other than ``run/AGENTS.md`` (e.g. the minimal primer the
+    CC pipeline switched to in 2026-04-27).
+    """
+    return primer_path.read_text()
+
+
+def derive_primer_fingerprints(primer_text: str, n: int = 5) -> tuple[str, ...]:
+    """Auto-pick distinctive substrings from the primer for stdout-presence
+    parity checking. Picks the first ``n`` lines whose length lies in
+    [25, 120] chars and that aren't pure markdown decoration. Robust
+    across primer variants (full, minimal, future ablations) so we don't
+    have to maintain a per-primer fingerprint table.
+    """
+    decoration = set("#-=* `")
+    lines = [l.strip() for l in primer_text.splitlines() if l.strip()]
+    out: list[str] = []
+    for l in lines:
+        if not (25 <= len(l) <= 120):
+            continue
+        if all(c in decoration for c in l):
+            continue
+        out.append(l)
+        if len(out) >= n:
+            break
+    return tuple(out)
+
+
 # ----------------------------------------------------------------------
 # Per-task workspace prep
 # ----------------------------------------------------------------------
@@ -256,6 +287,7 @@ def build_docker_cmd(
     plugin_dir: Path | None = None,
     vector_db_dir: Path | None = None,
     container_name: str | None = None,
+    extra_llm_envs: dict[str, str] | None = None,
 ) -> list[str]:
     """Build the docker run command for a single task.
 
@@ -295,10 +327,19 @@ def build_docker_cmd(
         # instead of falling back to an interactive setup wizard.
         "-e", f"LLM_API_KEY={api_key}",
         "-e", f"LLM_MODEL={model}",
-        "-e", f"LLM_BASE_URL={base_url}",
         # Some models / providers also look at these.
         "-e", f"OPENROUTER_API_KEY={api_key}",
         "-e", f"OPENAI_API_KEY={api_key}",
+        "-e", f"DEEPSEEK_API_KEY={api_key}",
+    ]
+    # Only set LLM_BASE_URL if non-empty. LiteLLM's native ``deepseek/`` provider
+    # has its own default base (https://api.deepseek.com); forcing an explicit
+    # base_url through LLM_BASE_URL can shadow that and break routing.
+    if base_url:
+        cmd += ["-e", f"LLM_BASE_URL={base_url}"]
+    for k, v in (extra_llm_envs or {}).items():
+        cmd += ["-e", f"{k}={v}"]
+    cmd += [
         # Ensure HOME is writable inside container (OpenHands writes
         # ~/.openhands fallback even with PERSISTENCE_DIR).
         "-e", "HOME=/workspace/.home",
@@ -319,8 +360,9 @@ def build_docker_cmd(
 
 # Distinctive substrings from run/AGENTS.md. If none of these appear in
 # the OpenHands stdout (events.jsonl), the primer never reached the model
-# and the run is a parity failure. Keep this list small and *load-bearing*
-# — strings that would only appear if the primer is in context.
+# and the run is a parity failure. Kept as a fallback default — when the
+# primer is anything other than run/AGENTS.md we derive fingerprints from
+# the primer text via ``derive_primer_fingerprints``.
 PRIMER_FINGERPRINTS = (
     "GEOS Expert",
     "PRIMARY RESPONSIBILITY",
@@ -330,7 +372,10 @@ PRIMER_FINGERPRINTS = (
 )
 
 
-def verify_parity(stdout_text: str) -> dict[str, Any]:
+def verify_parity(
+    stdout_text: str,
+    fingerprints: tuple[str, ...] = PRIMER_FINGERPRINTS,
+) -> dict[str, Any]:
     """Check that (a) the primer reached the model, (b) no public/user
     skills were auto-injected.
 
@@ -341,7 +386,7 @@ def verify_parity(stdout_text: str) -> dict[str, Any]:
         keyword-matched extras (RN-004 P0 #2). Should always be [] under
         the patched image.
     """
-    primer_seen = [s for s in PRIMER_FINGERPRINTS if s in stdout_text]
+    primer_seen = [s for s in fingerprints if s in stdout_text]
 
     activated: list[str] = []
     # OpenHands' --json stream emits events with `"activated_skills": [...]`.
@@ -471,6 +516,46 @@ def summarize_events(stdout_text: str) -> dict[str, Any]:
 
 
 # ----------------------------------------------------------------------
+# Self-refine (mirrors plugin/hooks/verify_outputs.py for the OH harness)
+# ----------------------------------------------------------------------
+
+def _xml_problems(inputs_dir: Path) -> str | None:
+    """Return None if /workspace/inputs has >=1 XML and all parse cleanly.
+    Otherwise return a short human-readable reason — used as feedback for
+    the next OH attempt under --self-refine."""
+    import xml.etree.ElementTree as ET
+    if not inputs_dir.exists():
+        return f"Directory {inputs_dir.name}/ does not exist. Write your XML here."
+    xmls = sorted(inputs_dir.rglob("*.xml"))
+    if not xmls:
+        return (f"No .xml files were written to {inputs_dir.name}/. "
+                f"Write at least one well-formed GEOS input XML there before finishing.")
+    bad: list[str] = []
+    for x in xmls:
+        try:
+            ET.parse(x)
+        except ET.ParseError as e:
+            rel = x.relative_to(inputs_dir.parent) if inputs_dir.parent in x.parents else x
+            bad.append(f"  - {rel}: {e}")
+    if bad:
+        return "The following XML files failed to parse:\n" + "\n".join(bad[:5])
+    return None
+
+
+def _build_refine_message(original_instructions: str, problem: str) -> str:
+    """Compose a short corrective user-message for the next attempt."""
+    return (
+        "Your previous attempt did not produce valid GEOS input XML.\n\n"
+        f"Issue:\n{problem}\n\n"
+        "Re-read the original task spec below, fix the issue (e.g. write the "
+        "missing files to /workspace/inputs/, repair malformed XML), and finish "
+        "again when /workspace/inputs/ contains at least one well-formed GEOS XML.\n\n"
+        "----- ORIGINAL TASK SPEC -----\n"
+        f"{original_instructions}"
+    )
+
+
+# ----------------------------------------------------------------------
 # Per-task driver
 # ----------------------------------------------------------------------
 
@@ -492,6 +577,10 @@ def run_one_task(
     plugin_dir: Path | None = None,
     vector_db_dir: Path | None = None,
     memory_primer_text: str = "",
+    primer_path: Path = AGENTS_MD_PATH,
+    primer_fingerprints: tuple[str, ...] = PRIMER_FINGERPRINTS,
+    self_refine_max_retries: int = 0,
+    extra_llm_envs: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     started_iso = datetime.now(timezone.utc).isoformat()
     started_t = time.time()
@@ -537,23 +626,6 @@ def run_one_task(
         )
         cleanup = True
 
-    # Unique container name so the timeout handler can `docker kill` it
-    # — `subprocess.run` killing the local `docker run` CLI process does
-    # NOT terminate the container managed by the docker daemon.
-    container_name = f"oh-{task_name}-{int(time.time())}"
-    cmd = build_docker_cmd(
-        docker_image=docker_image,
-        task_dir=task_dir,
-        filtered_geos=filtered_geos,
-        api_key=api_key,
-        model=model,
-        base_url=base_url,
-        inline_user_message=inline_user_message,
-        plugin_dir=plugin_dir,
-        vector_db_dir=vector_db_dir,
-        container_name=container_name,
-    )
-
     # Capture pinned openhands version from inside the container so it's
     # in the audit trail per RN-004 P3 #6.
     try:
@@ -571,7 +643,7 @@ def run_one_task(
         "openhands_version": oh_ver,
         "model": model,
         "base_url": base_url,
-        "primer_path": str(AGENTS_MD_PATH),
+        "primer_path": str(primer_path),
         "primer_sha256": primer_sha,
         "primer_delivery": "inline_user_message_prefix",
         "plugin_enabled": plugin_enabled,
@@ -579,6 +651,7 @@ def run_one_task(
         "vector_db_dir": str(vector_db_dir) if vector_db_dir else None,
         "memory_primer_used": bool(memory_primer_text),
         "memory_primer_chars": len(memory_primer_text),
+        "self_refine_max_retries": self_refine_max_retries,
         "blocked_gt_xml_filenames": blocked_xml,
         "blocked_rst_relpaths": blocked_rst,
         "filtered_geos_copy": str(filtered_geos),
@@ -589,52 +662,105 @@ def run_one_task(
     (task_dir / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
     if dry_run:
+        sample_cmd = build_docker_cmd(
+            docker_image=docker_image, task_dir=task_dir,
+            filtered_geos=filtered_geos, api_key=api_key, model=model,
+            base_url=base_url, inline_user_message=inline_user_message,
+            plugin_dir=plugin_dir, vector_db_dir=vector_db_dir,
+            container_name=f"oh-{task_name}-dryrun",
+            extra_llm_envs=extra_llm_envs,
+        )
         # Don't print the API key — redact for display only.
         display_cmd = [
             tok if "API_KEY=" not in tok else tok.split("=", 1)[0] + "=<redacted>"
-            for tok in cmd
+            for tok in sample_cmd
         ]
         print(f"[DRY RUN] {' '.join(display_cmd)}")
         return {"task": task_name, "status": "dry_run"}
 
-    status = "running"
+    # ----- attempt loop (1 + self_refine_max_retries) -----
+    attempts: list[dict[str, Any]] = []
+    cur_message = inline_user_message
+    status: str = "running"
     exit_code: int | str | None = None
     stdout = ""
     stderr = ""
+    last_problem: str | None = None
     try:
-        proc = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout,
-        )
-        stdout = proc.stdout
-        stderr = proc.stderr
-        exit_code = proc.returncode
-        status = "success" if proc.returncode == 0 else "failed"
-    except subprocess.TimeoutExpired as exc:
-        # Kill the daemon-managed container — `subprocess.run` only killed
-        # the local `docker run` CLI process; the container would keep
-        # running otherwise (and keep burning API budget).
-        try:
-            subprocess.run(["docker", "kill", container_name],
-                           stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL,
-                           timeout=15, check=False)
-        except Exception:
-            pass
-        # subprocess.TimeoutExpired returns bytes regardless of text=True.
-        raw_out = exc.stdout or b""
-        raw_err = exc.stderr or b""
-        stdout = raw_out.decode("utf-8", errors="replace") if isinstance(raw_out, (bytes, bytearray)) else raw_out
-        stderr = (raw_err.decode("utf-8", errors="replace") if isinstance(raw_err, (bytes, bytearray)) else raw_err) + "\n[runner] timeout expired"
-        exit_code = "timeout"
-        status = "timeout"
-    except Exception as exc:  # pragma: no cover (smoke path)
-        stderr = f"[runner] driver exception: {exc}"
-        exit_code = "error"
-        status = "error"
+        for attempt_idx in range(self_refine_max_retries + 1):
+            container_name = f"oh-{task_name}-{int(time.time())}-{attempt_idx}"
+            cmd = build_docker_cmd(
+                docker_image=docker_image,
+                task_dir=task_dir,
+                filtered_geos=filtered_geos,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                inline_user_message=cur_message,
+                plugin_dir=plugin_dir,
+                vector_db_dir=vector_db_dir,
+                container_name=container_name,
+                extra_llm_envs=extra_llm_envs,
+            )
+            a_started = time.time()
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=timeout,
+                )
+                a_stdout = proc.stdout
+                a_stderr = proc.stderr
+                a_exit = proc.returncode
+                a_status = "success" if proc.returncode == 0 else "failed"
+            except subprocess.TimeoutExpired as exc:
+                try:
+                    subprocess.run(["docker", "kill", container_name],
+                                   stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL,
+                                   timeout=15, check=False)
+                except Exception:
+                    pass
+                raw_out = exc.stdout or b""
+                raw_err = exc.stderr or b""
+                a_stdout = raw_out.decode("utf-8", errors="replace") if isinstance(raw_out, (bytes, bytearray)) else raw_out
+                a_stderr = (raw_err.decode("utf-8", errors="replace") if isinstance(raw_err, (bytes, bytearray)) else raw_err) + "\n[runner] timeout expired"
+                a_exit = "timeout"
+                a_status = "timeout"
+            except Exception as exc:  # pragma: no cover
+                a_stdout = ""
+                a_stderr = f"[runner] driver exception: {exc}"
+                a_exit = "error"
+                a_status = "error"
+
+            a_elapsed = round(time.time() - a_started, 1)
+            # Persist per-attempt artifacts (events_<idx>.jsonl, etc.) so post-hoc
+            # analysis can see what happened in each pass.
+            (task_dir / f"events_{attempt_idx}.jsonl").write_text(a_stdout)
+            (task_dir / f"stderr_{attempt_idx}.txt").write_text(a_stderr)
+            attempts.append({
+                "attempt": attempt_idx,
+                "exit_code": a_exit,
+                "status": a_status,
+                "elapsed_seconds": a_elapsed,
+                "feedback_in": cur_message[:400] if attempt_idx > 0 else None,
+            })
+            # Latest-attempt artifacts also become the canonical ones.
+            stdout = a_stdout
+            stderr = a_stderr
+            exit_code = a_exit
+            status = a_status
+
+            problem = _xml_problems(task_dir / "inputs")
+            if problem is None:
+                last_problem = None
+                break
+            last_problem = problem
+            if attempt_idx >= self_refine_max_retries:
+                break
+            cur_message = _build_refine_message(instructions, problem)
     finally:
         if cleanup:
             cleanup_filtered_geos_copy(filtered_geos)
@@ -645,6 +771,8 @@ def run_one_task(
     (task_dir / "stderr.txt").write_text(stderr if isinstance(stderr, str) else "")
     (task_dir / "exit_code.txt").write_text(str(exit_code))
 
+    # Aggregate event-summary across the LAST attempt only (matches CC's
+    # one-shot accounting; per-attempt counts live in events_<idx>.jsonl).
     summary = summarize_events(stdout if isinstance(stdout, str) else "")
     # Recursive: agents sometimes nest outputs (e.g. inputs/triaxialDriver/*.xml).
     # The scorer also globs recursively, so non-recursive count under-reports.
@@ -654,7 +782,12 @@ def run_one_task(
         status = "failed_no_outputs"
 
     # RN-004 P0 verifications (primer reaches model; no public skills inject).
-    parity = verify_parity(stdout if isinstance(stdout, str) else "")
+    # Concatenate all attempt stdouts so a primer fingerprint seen on any pass counts.
+    all_stdout = "\n".join(
+        (task_dir / f"events_{i}.jsonl").read_text()
+        for i in range(len(attempts))
+    )
+    parity = verify_parity(all_stdout, fingerprints=primer_fingerprints)
     if status == "success":
         if not parity["primer_in_context"]:
             status = "failed_parity_no_primer"
@@ -677,6 +810,9 @@ def run_one_task(
         "ended": datetime.now(timezone.utc).isoformat(),
         "elapsed_seconds": elapsed,
         "n_xml_files": n_xml,
+        "n_attempts": len(attempts),
+        "attempts": attempts,
+        "self_refine_remaining_problem": last_problem,
         **summary,
         **parity,
         **token_stats,
@@ -716,6 +852,22 @@ def main() -> int:
                    default=Path("/data/shared/geophysics_agent_data/data/vector_db"))
     p.add_argument("--memory-primer", type=Path, default=None,
                    help="Optional path to memory primer markdown to prepend (e.g. plugin/memory_primer_m1u.md)")
+    p.add_argument("--primer-path", type=Path, default=AGENTS_MD_PATH,
+                   help="Domain-adaptation primer to inline into the user message. "
+                        "Default: run/AGENTS.md (the full primer). For parity with the "
+                        "current vanilla-CC SOTA stack, pass plugin/GEOS_PRIMER_minimal.md.")
+    p.add_argument("--self-refine", type=int, default=0,
+                   help="Self-refinement budget. After the agent finishes, if "
+                        "/workspace/inputs/ has 0 XML files OR any XML fails to parse, "
+                        "re-invoke OpenHands in the same workspace with the failure "
+                        "reason as feedback. Cap at this many extra attempts. Default 0 "
+                        "(disabled). Mirrors plugin/hooks/verify_outputs.py for CC.")
+    p.add_argument("--llm-env", action="append", default=[],
+                   metavar="KEY=VALUE",
+                   help="Extra LLM_* env vars to forward into the container. Repeatable. "
+                        "Example: --llm-env LLM_REASONING_EFFORT=none disables thinking on "
+                        "deepseek/* models (works around the deepseek reasoning_content "
+                        "round-trip bug we hit on 2026-04-27).")
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--score", action="store_true",
                    help="After all tasks finish, run scripts/eval/batch_evaluate.py")
@@ -724,6 +876,13 @@ def main() -> int:
     plugin_dir_arg = args.plugin_dir if args.plugin else None
     vector_db_arg = args.vector_db_dir if args.plugin else None
     memory_text = args.memory_primer.read_text() if args.memory_primer else ""
+    extra_llm_envs: dict[str, str] = {}
+    for kv in args.llm_env:
+        if "=" not in kv:
+            print(f"--llm-env expects KEY=VALUE, got: {kv!r}", file=sys.stderr)
+            return 2
+        k, v = kv.split("=", 1)
+        extra_llm_envs[k] = v
 
     # Resolve task list.
     tasks = list(args.include) if args.include else list(TEST_TASKS_17)
@@ -742,12 +901,25 @@ def main() -> int:
         )
         return 2
 
-    primer_text = load_agents_md()
+    primer_text = load_primer(args.primer_path)
+    primer_fingerprints = derive_primer_fingerprints(primer_text)
+    if not primer_fingerprints:
+        print(f"[openhands_eval] WARNING: could not derive parity fingerprints from "
+              f"{args.primer_path} (primer too short / unusual). Falling back to the "
+              f"AGENTS.md fingerprint set, which will likely flag every run as a parity "
+              f"failure.", file=sys.stderr)
+        primer_fingerprints = PRIMER_FINGERPRINTS
     output_dir = args.output_root / args.run_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"[openhands_eval] run_name={args.run_name}  tasks={len(tasks)}  workers={args.workers}")
-    print(f"[openhands_eval] model={args.model}  base_url={args.base_url}")
+    print(f"[openhands_eval] model={args.model}  base_url={args.base_url or '<unset>'}")
+    print(f"[openhands_eval] primer={args.primer_path.name} ({len(primer_text)} chars, "
+          f"{len(primer_fingerprints)} fingerprints)")
+    print(f"[openhands_eval] plugin={args.plugin}  memory_primer={args.memory_primer}  "
+          f"self_refine={args.self_refine}")
+    if extra_llm_envs:
+        print(f"[openhands_eval] extra_llm_envs={list(extra_llm_envs.keys())}")
     print(f"[openhands_eval] output_dir={output_dir}")
 
     results: list[dict[str, Any]] = []
@@ -767,6 +939,10 @@ def main() -> int:
         plugin_dir=plugin_dir_arg,
         vector_db_dir=vector_db_arg,
         memory_primer_text=memory_text,
+        primer_path=args.primer_path,
+        primer_fingerprints=primer_fingerprints,
+        self_refine_max_retries=args.self_refine,
+        extra_llm_envs=extra_llm_envs,
     )
     if args.workers <= 1:
         for t in tasks:
