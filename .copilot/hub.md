@@ -10,6 +10,24 @@
 <!-- STATE-OF-KNOWLEDGE-START -->
 
 ### What we know
+- **Sub-agent orchestrator on DSv4-flash, 17/17 succeeded — but the
+  +0.204 vs vanilla DSv4-flash is PRELIMINARY** (XN-018, n=1 seed).
+  Adversarial code review (RN-005) flagged 3 P1 blockers BEFORE the
+  number can be propagated: (1) cross-test-task GT leakage —
+  `contamination.py:get_blocked_files_for_task` only blocks the current
+  task's GT; ExampleIsothermalLeakyWell trace shows the orchestrator
+  copied `thermalLeakyWell_base.xml` (GT for a *sibling* test task)
+  into its working dir; fix is one line (use `union_xml` already in
+  `test_blocklist.json`); (2) `--disallowedTools Write` not enforced
+  (multi-flag instead of comma-joined) — `Write` fired on 4 tasks
+  including TutorialSneddon (Δ +0.754); (3) token totals 2–4× inflated
+  by JSONL `message.usage` double-counting under subagent fan-out.
+  Three of the largest-win tasks (Sneddon, IsothermalLeakyWell,
+  DPWellbore) are implicated. Re-run required under fixed blocklist
+  + fixed Write-deny + multi-seed before any quantitative claim.
+  Architecture itself works mechanically (17/17 ran end-to-end);
+  attribution to "segmentation" is downgraded to a hypothesis pending
+  primer-matched controls.
 - **Plugin wins on deepseek-v3.2 at model parity.** Paired comparison of
   E03 (plugin + ds) vs E01 (no-plugin + ds) on 35 common-scored tasks:
   mean TreeSim **0.828 vs 0.653 (+0.178)**, pass >=0.7 **88.6% vs 54.3%**.

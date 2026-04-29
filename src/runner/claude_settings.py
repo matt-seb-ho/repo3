@@ -61,6 +61,7 @@ def write_claude_mcp_config(
     enable_memory: bool = False,
     enable_noop: bool = False,
     enable_xmllint: bool = False,
+    enable_rag: bool = True,
     memory_variant: str = "lexical",  # "lexical" (memory_mcp.py) or "embed" (memory_mcp_embed.py)
     memory_items_host_path: Path | None = None,
     memory_embed_index_host_path: Path | None = None,
@@ -76,8 +77,9 @@ def write_claude_mcp_config(
     If enable_memory=True, additionally register the memory_mcp server that
     serves a frozen G-Memory-lite index from /plugins/repo3/memory_index.json.
     """
-    servers: dict[str, Any] = {
-        "geos-rag": {
+    servers: dict[str, Any] = {}
+    if enable_rag:
+        servers["geos-rag"] = {
             "type": "stdio",
             "command": "uv",
             "args": [
@@ -91,8 +93,7 @@ def write_claude_mcp_config(
                 "EXCLUDED_GT_XML_FILENAMES": json.dumps(blocked_xml_filenames),
                 "EXCLUDED_RST_PATHS": json.dumps(blocked_rst_relpaths),
             },
-        },
-    }
+        }
     if enable_memory:
         if memory_variant == "embed":
             # M3 — embedding MCP with hard-error on missing key + preflight (RN-003 P2 #8).

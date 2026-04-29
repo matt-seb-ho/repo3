@@ -1,9 +1,70 @@
 # Checkpoint — Sub-agent orchestration build (sleep mode, cycle 1)
 
 **Sleep started:** 2026-04-27T20:00:00Z
-**Phase:** DO (smoketest in progress)
-**Cycle:** 1
+**Phase:** TEST → THINK (17-task campaign complete, analyzing)
+**Cycle:** 6
 **Session:** "custom-subagents-arch"
+
+## Cycle 7 status — adversarial review RN-005 found 3 P1 blockers in XN-018
+
+The headline "+0.204 vs vanilla DSv4-flash" and "matches OpenHands+minimax"
+claims are PRELIMINARY pending fixes. Three P1 blockers:
+
+1. **GT leakage**: `contamination.py:get_blocked_files_for_task` blocks
+   only the current task's GT, leaving the other 16 test-task GT XMLs
+   visible in the filtered tree. Trace shows orchestrator on
+   ExampleIsothermalLeakyWell copied `thermalLeakyWell_base.xml` (GT
+   for ExampleThermalLeakyWell, a sibling test task). Fix: wire
+   `misc/memory_artifacts/test_blocklist.json:union_xml` (already
+   present, 55 entries) into the runner.
+
+2. **`Write` tool not denied**: `--disallowedTools Skill --disallowedTools
+   AskUserQuestion --disallowedTools Write` was passed as 3 separate
+   flags but CC expects a single comma-separated value. Write fired
+   in 4 of 17 tasks (Sneddon, CasedThermoElastic, ThermalLeakyWell,
+   kgdExperimentValidation). Fix: `--disallowedTools "Skill,AskUserQuestion,Write"`.
+
+3. **Token double-counting**: `analyze_17task.py:tally_jsonl_usage`
+   sums every JSONL `message.usage` record; stream-json re-emits the
+   same message.id repeatedly. ~2-4× inflation in absolute token
+   totals (deltas may survive since both arms affected). Fix: dedup
+   by message.id.
+
+Three of the four largest-win tasks (TutorialSneddon Δ+0.754,
+ExampleIsothermalLeakyWell Δ+0.109, ExampleDPWellbore Δ+0.684) are
+implicated. XN-018 marked PRELIMINARY with full response table.
+Hub.md SoK updated. RN-005 lives at .copilot/reviews/.
+
+Architecture itself is mechanically sound (17/17 end-to-end). The
+re-run plan: P1 fixes + ≥2 seeds + matched primer surface (P2). Until
+then no quantitative claim should propagate.
+
+## Cycle 6 status — full 17-task campaign DONE, XN-018 written
+
+`orch_dsv4_remain12_s1` finished cleanly: 12/12 success, mean TreeSim
+**0.874** (median 0.929, range 0.608-0.998). Combined with `orch_dsv4_5task_s1`,
+the orchestrator on DSv4-flash now covers all 17 v2 tasks at:
+- **Mean TreeSim 0.851** (median 0.852, all 17 succeeded, n=1 seed)
+- Same-model paired Δ vs vanilla DSv4-flash = **+0.204** (13W/3L/1T)
+- Same-model paired Δ vs DSv4flash+plugin+xmllint best-setup = **+0.234**
+- Within −0.012 of OpenHands+minimax-m2.7 (much larger model)
+
+**Efficiency cost:**
+- Compute: 15055s vs vanilla 6825s (~2.2× more)
+- True wall: 134 min @ W=2 vs vanilla 21 min @ W=6
+- Paid input tokens: 4.4M vs vanilla 6.9M (orchestrator uses fewer!)
+- Cache-read tokens: 128M vs 72M (orchestrator hits cache harder)
+
+**Three losses** (multiphase/thermal coupled): ExampleThermoporoelasticConsolidation
+−0.190, buckleyLeverettProblem −0.102, ExampleThermalLeakyWell −0.035.
+Traceable to thin multiphase/thermal coverage in drivers/solvers primers.
+
+XN-018 written at docs/XN-018_orchestrator-vs-priors-17task.md.
+LOG-2026-04-28-1 appended to research_log.md.
+
+Next steps: enrich drivers primer with multiphase content, multi-seed
+validation (3 seeds × 17 tasks), adversarial review on orchestrator
+code, optional W=4 re-run.
 
 ## Cycle 5 status — 5-task campaign DONE, results validated
 
@@ -501,3 +562,15 @@ All 4 P1 and 4 P2 blockers from RN-003 resolved:
 - v2 specs: `/data/shared/geophysics_agent_data/data/eval/experiments_test36_template`
 - GT: `/data/shared/geophysics_agent_data/data/eval/experiments_gt`
 - Scoring: `uv run python scripts/eval/batch_evaluate.py --experiments-dir <run> --ground-truth-dir <gt> --output <summary.json>`
+
+---
+**Compaction occurred at:** 2026-04-28T08:33:50Z
+**Action required:** Read this checkpoint fully to re-orient. Run /pickup if available.
+
+---
+**Compaction occurred at:** 2026-04-28T08:36:18Z
+**Action required:** Read this checkpoint fully to re-orient. Run /pickup if available.
+
+---
+**Compaction occurred at:** 2026-04-28T08:55:38Z
+**Action required:** Read this checkpoint fully to re-orient. Run /pickup if available.

@@ -103,6 +103,8 @@ def run_task(
     remove_workspace_geos_primer(result_dir)
     cheatsheet_path = agent.get("cheatsheet_path")
     cheatsheet_in_workspace = bool(agent.get("cheatsheet_in_workspace", False))
+    _plugin_on = bool(agent.get("plugin_enabled", True))
+    _rag_on = bool(agent.get("rag_enabled", _plugin_on))
     system_prompt, primer_in_system_prompt = build_system_prompt(
         agents_context,
         resolved_geos_primer_path,
@@ -110,7 +112,8 @@ def run_task(
         cheatsheet_in_workspace=cheatsheet_in_workspace,
         memory_enabled=bool(agent.get("memory_enabled", False)),
         memory_prompt_hint=bool(agent.get("memory_prompt_hint", True)),
-        plugin_enabled=bool(agent.get("plugin_enabled", True)),
+        plugin_enabled=_plugin_on,
+        rag_enabled=_rag_on,
     )
     # If we're delivering the cheatsheet via the workspace (instead of system prompt),
     # drop the file into the result_dir so Docker bind-mounts it as /workspace/CHEATSHEET.md.
@@ -196,6 +199,7 @@ def run_task(
                 enable_memory=bool(agent.get("memory_enabled", False)),
                 enable_noop=bool(agent.get("noop_mcp_enabled", False)),
                 enable_xmllint=bool(agent.get("xmllint_mcp_enabled", False)),
+                enable_rag=_rag_on,
                 memory_variant=str(agent.get("memory_variant", "lexical")),
                 memory_items_host_path=(
                     Path(agent["memory_items_path"]).resolve()

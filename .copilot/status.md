@@ -1,7 +1,7 @@
-Phase: DO
+Phase: THINK
 Autonomy: full
 Project: repo3
-Updated: 2026-04-27
+Updated: 2026-04-28
 
 Researcher: present
 Sleep started: 2026-04-27T20:00:00Z
@@ -9,11 +9,27 @@ Sleep ended:
 max_experiments: 20
 max_hours: 8
 diminishing_returns: 3
-Cycle: 5
+Cycle: 7
 Consecutive_no_improvement: 0
 Consecutive_errors: 0
 
-Current task: Sub-agent orchestration architecture for GEOS XML authoring (D-010 / XN-017).
+Current task: 17-task orchestrator XN-018 was drafted with mean TreeSim
+0.851 / +0.204 vs vanilla, but adversarial review (RN-005) immediately
+found 3 P1 blockers that must land before the number can stand:
+  1. Cross-test-task GT leakage — wire union_xml into blocklist.
+  2. --disallowedTools Write not enforced (multi-flag instead of
+     comma-joined). Write fired in 4 tasks.
+  3. analyze_17task.py token sum double-counts message.usage records.
+
+Three of the four largest-win tasks are implicated. XN-018 marked
+PRELIMINARY with per-finding response table; hub.md SoK updated.
+
+Next: fix P1 blockers, re-run both arms (orch + vanilla) at ≥2 seeds
+under the fixed setup, update XN-018 with the corrected delta only
+after the re-run. Then enrich drivers primer for multiphase regressions
+and consider the W=4 wall-efficiency optimization.
+
+Original task: Sub-agent orchestration architecture for GEOS XML authoring (D-010 / XN-017).
 Build a parallel, toggleable orchestrator that decomposes XML authoring across per-segment
 Claude Code subagents. Test on the 17-task v2 set with DSv4-flash direct (fall back to
 m2.7 via OpenRouter if DS account exhausts).

@@ -1408,3 +1408,130 @@ task; my drivers primer is thin on multiphase BCs. Needs targeted enrichment.
 -> Decision (provisional): architecture validated. Next: queue full 17-task
    campaign, enrich multiphase content in drivers primer, dispatch
    adversarial review on orchestrator code, then declare results.
+
+---
+
+<a id="LOG-2026-04-28-1"></a>
+### LOG-2026-04-28-1 — 17-task orchestrator campaign complete (XN-018)
+
+Launched the remaining 12 v2 tasks with DSv4-flash orchestrator
+(`orch_dsv4_remain12_s1`, W=2). 12/12 succeeded (mean TreeSim 0.874,
+median 0.929, range 0.608–0.998). Combined with the 5-task cycle from
+XN-017, the orchestrator now covers all 17 v2 tasks at **mean TreeSim
+0.851** (median 0.852, all 17 succeeded).
+
+**Same-model paired delta vs vanilla DSv4-flash (n=17):**
+mean Δ = **+0.204** | wins/losses/ties = 13 / 3 / 1 | median Δ = +0.158.
+
+Largest wins: TutorialSneddon +0.754, ExampleDPWellbore +0.684,
+ExampleMandel +0.608. Three losses concentrate in coupled
+thermo-poromech-multiphase scenarios (ExampleThermoporoelasticConsolidation
+−0.190, buckleyLeverettProblem −0.102, ExampleThermalLeakyWell −0.035) —
+traceable to thin multiphase/thermal coverage in the drivers/solvers
+primers. Architecture-level fix not needed; primer enrichment will close.
+
+**Same-model paired delta vs DSv4flash+plugin+xmllint (best-setup):**
+mean Δ = **+0.234**. The orchestrator beats the prior peak DSv4-flash
+configuration cleanly — segmentation is doing more work than any prior
+single-agent harness improvement on this backbone.
+
+**Cross-implementation:**
+- orchestrator-DSv4flash: 0.851 mean
+- openhands-minimax-m2.7: 0.863 mean (Δ −0.012, within noise)
+- openhands+plugin-minimax-m2.7: 0.820
+- vanilla-DSv4flash: 0.647
+- DSv4flash+full-primer: 0.641
+- DSv4flash+min-primer: 0.666
+- DSv4flash+plugin+xmllint: 0.617
+
+The orchestrator essentially closes the gap between DSv4-flash (a smaller,
+cheaper model) and OpenHands+minimax-m2.7 (a substantially larger model).
+
+**Efficiency cost:**
+- Compute: 15055s sum vs vanilla's 6825s (~2.2× more, due to 5 sequential
+  subagent fan-out per task).
+- True wall: 134 min @ W=2 vs vanilla 21 min @ W=6. Orchestrator is much
+  slower per task end-to-end. W=4 re-run would cut wall to ~67 min.
+- Tokens: paid input 4.4M (vs 6.9M vanilla — *fewer*); cache-read 128M
+  (vs 72M vanilla — more). Per-task input + cache total is 7.8M for
+  orchestrator vs 4.6M for vanilla. With prompt caching the cost
+  premium is moderate; without it, ~2× more expensive than vanilla.
+
+-> DAG: I14 (sub-agent orchestration), E25 (orchestrator+DSv4-flash, n=1)
+-> Evidence: docs/XN-018_orchestrator-vs-priors-17task.md,
+   data/eval/results/orch_dsv4_remain12_s1/orchestrator_dsv4flash/_summary.json,
+   data/eval/orchestrator_dsv4flash/orch_dsv4_remain12_s1/_analysis.json
+-> Decision: orchestrator validated on full 17-task v2. Same-model gain
+   over vanilla is large and consistent (13/3/1). Next: enrich drivers
+   primer for multiphase, multi-seed validation (3 seeds), adversarial
+   review on orchestrator code, optional W=4 re-run for wall efficiency.
+
+---
+
+<a id="LOG-2026-04-28-2"></a>
+### LOG-2026-04-28-2 — Adversarial review (RN-005) finds 3 P1 blockers in XN-018
+
+Dispatched `/adversarial-review` (fresh-context Claude subagent) on the
+orchestrator code + analyze script + comparison setup, immediately after
+drafting XN-018. Review found 3 P1 blockers, 2 P2, 2 P3:
+
+**P1A — Cross-test-task GT leakage.** `src/runner/contamination.py:187-231`
+(`get_blocked_files_for_task`) only blocks the *current* task's GT
+files. The other 16 v2 test-task GT XMLs are visible in the filtered
+tree. Trace evidence: orchestrator on `ExampleIsothermalLeakyWell`
+copied `thermalLeakyWell_base.xml` (GT for `ExampleThermalLeakyWell`,
+a sibling test task) into its working dir; scored 0.836 effectively
+by GT-proximity, not authoring quality. Affects vanilla too, but the
+orchestrator's "ONE search ONE cp" bootstrap workflow systematizes
+the shortcut. **Fix is one line**: `misc/memory_artifacts/test_blocklist.json`
+already has a `union_xml` field with all 17 GT filenames; just wire it
+through.
+
+**P1B — `--disallowedTools Write` not enforced.** `run_orchestrator_eval.py:194-195`
+passes `Skill`, `AskUserQuestion`, `Write` as **repeated** flags but
+Claude Code expects a comma-separated single value. Trace: `Write`
+tool_use fired in 4 tasks (TutorialSneddon, AdvancedExampleCasedContactThermoElasticWellbore,
+ExampleThermalLeakyWell, kgdExperimentValidation). The "delegator-only"
+architectural framing in XN-018 §Discussion is unsupported on those
+tasks. Fix: `--disallowedTools "Skill,AskUserQuestion,Write"`.
+
+**P1C — Token totals 2–4× inflated.** `analyze_17task.py:tally_jsonl_usage`
+sums every `message.usage` line, but stream-json re-emits identical
+message-IDs under subagent fan-out. TutorialSneddon: 229 usage records
+→ 100 distinct message-IDs (2.48× inflation). Vanilla also affected
+(~3.7×), so deltas may survive — but the absolute "4.4M paid input +
+128M cache-read" headline is wrong, and cross-implementation token
+comparison vs OpenHands (which reports tokens once per turn) is
+broken. Fix: dedup by `message.id` before summing.
+
+**P2 / P3 issues**: bootstrap copies near-GT siblings (47-line diff for
+TutorialSneddon's `_FracShapes` variant); primer surface unmatched
+between arms (vanilla has baked AGENTS.md primer; orchestrator has
+`--strip-baked-primer` + 5 different primers); campaign wall fallback
+is fs-mtime-derived (orch runner doesn't write started/ended);
+multi-XML output benefits from scorer's `<Problem>` merge.
+
+**Implication**: The +0.204 paired delta and "matches OpenHands+minimax"
+claim CANNOT stand on this run alone. Three of the four largest-win
+tasks (TutorialSneddon Δ+0.754, ExampleIsothermalLeakyWell Δ+0.109,
+ExampleDPWellbore Δ+0.684) are implicated by ≥1 P1 issue. The
+qualitative observation (orchestrator runs 17/17 end-to-end, architecture
+is mechanically sound) survives.
+
+XN-018 amended with `status: PRELIMINARY` and a per-finding response
+table (accept→fix / accept→limitation / reject-with-reason) per the
+`/adversarial-review` protocol. Hub.md State of Knowledge updated to
+flag the preliminary status.
+
+**Action plan** (in priority order):
+1. Wire `union_xml` blocklist (P1A).
+2. Fix `--disallowedTools` flag syntax (P1B).
+3. Dedup `message.id` in analyze_17task.py (P1C).
+4. Multi-seed re-run (≥2 seeds) of both arms under fixed setup.
+5. Then update XN-018 with corrected delta. Only validate after re-run.
+
+-> DAG: I14 (sub-agent orchestration), E25 (orchestrator+DSv4-flash, n=1
+   PRELIMINARY pending re-run)
+-> Evidence (against): .copilot/reviews/RN-005_adversarial_orchestrator-17task.md
+-> Decision: orchestrator architecture works end-to-end on 17/17. Numerical
+   claims paused pending P1 fixes + re-run.

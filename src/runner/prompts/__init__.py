@@ -85,7 +85,10 @@ def build_system_prompt(
     memory_enabled: bool = False,
     memory_prompt_hint: bool = True,
     plugin_enabled: bool = True,
+    rag_enabled: bool | None = None,
 ) -> tuple[str, bool]:
+    if rag_enabled is None:
+        rag_enabled = plugin_enabled
     primer_text = ""
     primer_inlined = False
     if geos_primer_path.exists() and "# GEOS Primer" not in agents_context:
@@ -113,7 +116,7 @@ def build_system_prompt(
             if body:
                 cheatsheet_text = f"\n\n---\n{body}\n"
 
-    rag_instructions = _RAG_INSTRUCTIONS_PLUGIN if plugin_enabled else _RAG_INSTRUCTIONS_VANILLA
+    rag_instructions = _RAG_INSTRUCTIONS_PLUGIN if rag_enabled else _RAG_INSTRUCTIONS_VANILLA
 
     memory_instructions = (
         _MEMORY_INSTRUCTIONS

@@ -254,6 +254,51 @@ AGENTS: dict[str, dict] = {
         "requires_rag": False,
         "plugin_enabled": False,
     },
+    # 2026-04-29 build-up ablation matrix: C0 (true vanilla) - C5 (RAG+SR+mem).
+    # All variants assume the caller passes --strip-baked-primer with the
+    # appropriate --geos-primer-path; results_dir below routes outputs to
+    # the dsv4_ablation_2026-04-29 namespace under /data/shared/.
+    # C0: true minimal — no plugin, no RAG, no SR hook, absolute-min primer.
+    "abl_c0_true_vanilla": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_c0_true_vanilla",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": False,
+    },
+    # C2: minimal primer + SR hook ON, but RAG MCP NOT loaded and no RAG
+    # instruction in the system prompt. Plugin is loaded only so --settings
+    # carries the Stop hook (verify_outputs.py). Decoupled via rag_enabled.
+    "abl_c2_min_sr_no_rag": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_c2_min_sr_no_rag",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        # stop_hook_enabled defaults True
+    },
+    # C3: minimal primer + RAG, no SR hook.
+    "abl_c3_min_rag_no_sr": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_c3_min_rag_no_sr",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "stop_hook_enabled": False,
+    },
+    # C4: minimal primer + RAG + SR hook (no xmllint, no memory).
+    "abl_c4_min_rag_sr": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_c4_min_rag_sr",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+    },
     # -------------------------------------------------------------------------
     # D-008 memory ablation (post-RN-003). All stacked on RAG+SR
     # (plugin_enabled=True, stop_hook_enabled=True-by-default). Each variant
