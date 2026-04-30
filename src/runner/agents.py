@@ -377,6 +377,21 @@ AGENTS: dict[str, dict] = {
         "xmllint_mcp_enabled": True,
         "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_dsv4_m1u.md",
     },
+    # SE (self-evolving): blank-init plugin that the agent rewrites between
+    # 6-task batches. Same harness as C6 (xmllint hook + no RAG) but plugin
+    # contents (memory/skills/agents/PRIMER) are agent-authored over rounds.
+    # Per-round runner overrides --plugin-dir to plugin_evolving/v{N}/ and
+    # --geos-primer-path to plugin_evolving/v{N}/PRIMER.md
+    "abl_se_round": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_se_round",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "add_native_plugin_prefix": False,
+    },
     # MemP: per-task procedural memory retrieval. Agent dict carries
     # `cheatsheet_path_template` which the orchestrator formats with the
     # task name at task-launch time, loading a per-task primer from
