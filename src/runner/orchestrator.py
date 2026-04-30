@@ -102,6 +102,17 @@ def run_task(
     primer_workspace_path: Path | None = None
     remove_workspace_geos_primer(result_dir)
     cheatsheet_path = agent.get("cheatsheet_path")
+    # Per-task cheatsheet support (MemP-style retrieval).
+    # If `cheatsheet_path_template` is set, format with `{task}` to get
+    # a per-task cheatsheet file. Falls back to `cheatsheet_path` if the
+    # per-task file doesn't exist.
+    cheatsheet_template = agent.get("cheatsheet_path_template")
+    if cheatsheet_template is not None:
+        per_task_cs = Path(str(cheatsheet_template).format(task=task_name))
+        if per_task_cs.exists():
+            cheatsheet_path = per_task_cs
+        elif cheatsheet_path is None:
+            print(f"WARN: cheatsheet template miss for {task_name} at {per_task_cs}")
     cheatsheet_in_workspace = bool(agent.get("cheatsheet_in_workspace", False))
     _plugin_on = bool(agent.get("plugin_enabled", True))
     _rag_on = bool(agent.get("rag_enabled", _plugin_on))

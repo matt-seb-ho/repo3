@@ -36,6 +36,8 @@ case "$COND" in
   c9) AGENT="abl_c9_no_prefix";             PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md" ;;
   c10) AGENT="abl_c10_xmllint_hook_mem";    PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md"; export GEOS_HOOK_XMLLINT=1 ;;
   c11) AGENT="abl_c11_xmllint_full_mem";    PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md"; export GEOS_HOOK_XMLLINT=1 ;;
+  cMPa) AGENT="abl_cMP_a_memp_on_c2";       PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md" ;;
+  cMPb) AGENT="abl_cMP_b_memp_on_c7";       PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md"; export GEOS_HOOK_XMLLINT=1 ;;
   *) echo "unknown condition: $COND" >&2; exit 2 ;;
 esac
 

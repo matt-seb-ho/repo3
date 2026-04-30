@@ -377,6 +377,35 @@ AGENTS: dict[str, dict] = {
         "xmllint_mcp_enabled": True,
         "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_dsv4_m1u.md",
     },
+    # MemP: per-task procedural memory retrieval. Agent dict carries
+    # `cheatsheet_path_template` which the orchestrator formats with the
+    # task name at task-launch time, loading a per-task primer from
+    # plugin/memp_per_task/<task>.md (top-3 cosine retrievals from the
+    # 18-task train library, distilled via gemini-3-flash-preview).
+    #
+    # cMP-A: MemP on top of C2 (parse-only SR, no xmllint, no RAG)
+    "abl_cMP_a_memp_on_c2": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_cMP_a_memp_on_c2",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "cheatsheet_path_template": str(REPO_ROOT / "plugin" / "memp_per_task" / "{task}.md"),
+    },
+    # cMP-B: MemP on top of C7 (xmllint hook + xmllint MCP, no RAG)
+    "abl_cMP_b_memp_on_c7": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_cMP_b_memp_on_c7",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "xmllint_mcp_enabled": True,
+        "cheatsheet_path_template": str(REPO_ROOT / "plugin" / "memp_per_task" / "{task}.md"),
+    },
     # C9: C2 with the native-plugin-prefix suppressed in user prompt.
     # Isolates the "phantom RAG instruction" effect (the +0.24 surprise
     # from the C0-C5 ablation). Same primer + same plugin loading as C2,
