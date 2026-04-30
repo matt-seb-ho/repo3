@@ -217,7 +217,13 @@ def run_task(
         else:
             plugin_dir = None
         native_model = claude_model or agent.get("model") or DEFAULT_CLAUDE_MODEL
-        if enable_plugin:
+        # The native_plugin_prefix is a user-prompt addendum that says
+        # "Don't call Skill; use mcp__geos-rag__* tools". Historically gated
+        # on plugin_enabled (so a RAG-disabled cell with plugin still
+        # loaded gets the prefix — confusing but how prior cells ran).
+        # Agents can explicitly opt out via add_native_plugin_prefix=False.
+        _add_prefix = bool(agent.get("add_native_plugin_prefix", enable_plugin))
+        if _add_prefix:
             native_prompt = f"{native_plugin_prefix()}{prompt}"
         else:
             native_prompt = prompt

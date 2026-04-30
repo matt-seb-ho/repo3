@@ -22,11 +22,18 @@ COND="${1:?cond required}"
 SEED="${2:?seed required}"
 
 case "$COND" in
-  c0) AGENT="abl_c0_true_vanilla";        PRIMER="plugin/GEOS_PRIMER_absolute_min.md" ;;
-  c2) AGENT="abl_c2_min_sr_no_rag";       PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md" ;;
-  c3) AGENT="abl_c3_min_rag_no_sr";       PRIMER="plugin/GEOS_PRIMER_minimal.md" ;;
-  c4) AGENT="abl_c4_min_rag_sr";          PRIMER="plugin/GEOS_PRIMER_minimal.md" ;;
-  c5) AGENT="abl_c5_dsv4_mem";            PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md" ;;
+  c0) AGENT="abl_c0_true_vanilla";          PRIMER="plugin/GEOS_PRIMER_absolute_min.md" ;;
+  c2) AGENT="abl_c2_min_sr_no_rag";         PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md" ;;
+  c3) AGENT="abl_c3_min_rag_no_sr";         PRIMER="plugin/GEOS_PRIMER_minimal.md" ;;
+  c4) AGENT="abl_c4_min_rag_sr";            PRIMER="plugin/GEOS_PRIMER_minimal.md" ;;
+  c5) AGENT="abl_c5_dsv4_mem";              PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md" ;;
+  # C6-C8 enable the xmllint hook via env var so verify_outputs.py runs
+  # `xmllint --schema` after parse-check on Stop and blocks with formatted
+  # error feedback if validation fails.
+  c6) AGENT="abl_c6_xmllint_hook";          PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md"; export GEOS_HOOK_XMLLINT=1 ;;
+  c7) AGENT="abl_c7_xmllint_full_no_rag";   PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md"; export GEOS_HOOK_XMLLINT=1 ;;
+  c8) AGENT="abl_c8_xmllint_full_rag";      PRIMER="plugin/GEOS_PRIMER_minimal.md";         export GEOS_HOOK_XMLLINT=1 ;;
+  c9) AGENT="abl_c9_no_prefix";             PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md" ;;
   *) echo "unknown condition: $COND" >&2; exit 2 ;;
 esac
 

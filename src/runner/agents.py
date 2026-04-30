@@ -312,6 +312,60 @@ AGENTS: dict[str, dict] = {
         "rag_enabled": False,
         "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_dsv4_m1u.md",
     },
+    # C6: C2 + xmllint hook (no MCP-tool, no RAG). Isolates the xmllint
+    # validation hook on top of parse-check-only SR. The agent is NOT told
+    # about xmllint via primer — must learn from the hook's block feedback.
+    # Caller MUST export GEOS_HOOK_XMLLINT=1 in host env so it's forwarded.
+    "abl_c6_xmllint_hook": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_c6_xmllint_hook",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+    },
+    # C7: C6 + xmllint MCP tool. Agent can voluntarily call
+    # mcp__xmllint__validate_geos_xml during XML authoring (vs only after).
+    # This is what the user originally meant by "C2 = SR hook (no RAG)".
+    # Caller MUST export GEOS_HOOK_XMLLINT=1.
+    "abl_c7_xmllint_full_no_rag": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_c7_xmllint_full_no_rag",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "xmllint_mcp_enabled": True,
+    },
+    # C8: C7 + RAG. Tests whether RAG helps when xmllint is providing
+    # schema feedback (the user's hypothesis: xmllint says "you used
+    # X, expected Y" and RAG search_schema looks up Y's spec).
+    "abl_c8_xmllint_full_rag": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_c8_xmllint_full_rag",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "xmllint_mcp_enabled": True,
+    },
+    # C9: C2 with the native-plugin-prefix suppressed in user prompt.
+    # Isolates the "phantom RAG instruction" effect (the +0.24 surprise
+    # from the C0-C5 ablation). Same primer + same plugin loading as C2,
+    # only difference is the absence of the "use mcp__geos-rag__* tools"
+    # prefix prepended to the user prompt.
+    "abl_c9_no_prefix": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_c9_no_prefix",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "add_native_plugin_prefix": False,
+    },
     # -------------------------------------------------------------------------
     # D-008 memory ablation (post-RN-003). All stacked on RAG+SR
     # (plugin_enabled=True, stop_hook_enabled=True-by-default). Each variant

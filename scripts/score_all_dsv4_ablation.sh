@@ -9,13 +9,17 @@ cd /home/matt/sci/repo3
 
 ROOT="/data/shared/geophysics_agent_data/data/eval/dsv4_ablation_2026-04-29"
 
-for COND in c0 c2 c3 c4 c5; do
+for COND in c0 c2 c3 c4 c5 c6 c7 c8 c9; do
   case "$COND" in
     c0) AGENT="abl_c0_true_vanilla" ;;
     c2) AGENT="abl_c2_min_sr_no_rag" ;;
     c3) AGENT="abl_c3_min_rag_no_sr" ;;
     c4) AGENT="abl_c4_min_rag_sr" ;;
     c5) AGENT="abl_c5_dsv4_mem" ;;
+    c6) AGENT="abl_c6_xmllint_hook" ;;
+    c7) AGENT="abl_c7_xmllint_full_no_rag" ;;
+    c8) AGENT="abl_c8_xmllint_full_rag" ;;
+    c9) AGENT="abl_c9_no_prefix" ;;
   esac
   for SEED in 1 2 3; do
     RUN_NAME="${COND}_dsv4_s${SEED}"
@@ -44,13 +48,17 @@ done
 # Print per-(cond,seed) means
 echo ""
 echo "=== Summary ==="
-for COND in c0 c2 c3 c4 c5; do
+for COND in c0 c2 c3 c4 c5 c6 c7 c8 c9; do
   case "$COND" in
     c0) AGENT="abl_c0_true_vanilla" ;;
     c2) AGENT="abl_c2_min_sr_no_rag" ;;
     c3) AGENT="abl_c3_min_rag_no_sr" ;;
     c4) AGENT="abl_c4_min_rag_sr" ;;
     c5) AGENT="abl_c5_dsv4_mem" ;;
+    c6) AGENT="abl_c6_xmllint_hook" ;;
+    c7) AGENT="abl_c7_xmllint_full_no_rag" ;;
+    c8) AGENT="abl_c8_xmllint_full_rag" ;;
+    c9) AGENT="abl_c9_no_prefix" ;;
   esac
   for SEED in 1 2 3; do
     RUN_NAME="${COND}_dsv4_s${SEED}"
