@@ -21,6 +21,8 @@ case "$COND" in
   c7) AGENT="abl_c7_xmllint_full_no_rag" ;;
   c8) AGENT="abl_c8_xmllint_full_rag" ;;
   c9) AGENT="abl_c9_no_prefix" ;;
+  c10) AGENT="abl_c10_xmllint_hook_mem" ;;
+  c11) AGENT="abl_c11_xmllint_full_mem" ;;
   *) echo "unknown condition: $COND" >&2; exit 2 ;;
 esac
 

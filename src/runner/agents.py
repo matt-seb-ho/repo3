@@ -351,6 +351,32 @@ AGENTS: dict[str, dict] = {
         "plugin_enabled": True,
         "xmllint_mcp_enabled": True,
     },
+    # C10: C6 + DSv4-distilled memory cheatsheet.
+    # Tests whether memory + xmllint hook compose (memory primes correct
+    # vocab, xmllint catches residuals) or cancel (xmllint already
+    # catches what memory was trying to prevent).
+    "abl_c10_xmllint_hook_mem": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_c10_xmllint_hook_mem",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_dsv4_m1u.md",
+    },
+    # C11: C7 + DSv4-distilled memory cheatsheet.
+    "abl_c11_xmllint_full_mem": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_c11_xmllint_full_mem",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "xmllint_mcp_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_dsv4_m1u.md",
+    },
     # C9: C2 with the native-plugin-prefix suppressed in user prompt.
     # Isolates the "phantom RAG instruction" effect (the +0.24 surprise
     # from the C0-C5 ablation). Same primer + same plugin loading as C2,
