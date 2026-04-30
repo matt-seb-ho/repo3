@@ -26,6 +26,7 @@ case "$COND" in
   c2) AGENT="abl_c2_min_sr_no_rag";       PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md" ;;
   c3) AGENT="abl_c3_min_rag_no_sr";       PRIMER="plugin/GEOS_PRIMER_minimal.md" ;;
   c4) AGENT="abl_c4_min_rag_sr";          PRIMER="plugin/GEOS_PRIMER_minimal.md" ;;
+  c5) AGENT="abl_c5_dsv4_mem";            PRIMER="plugin/GEOS_PRIMER_minimal_vanilla.md" ;;
   *) echo "unknown condition: $COND" >&2; exit 2 ;;
 esac
 

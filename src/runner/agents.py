@@ -299,6 +299,19 @@ AGENTS: dict[str, dict] = {
         "requires_rag": True,
         "plugin_enabled": True,
     },
+    # C5: C2 + DSv4-distilled M1-u memory primer (cheatsheet).
+    # Memory distilled from harvest_c2_dsv4_s1 trajectories on 18 train tasks
+    # via gemini-3-flash-preview (M1-u variant, ungrounded).
+    "abl_c5_dsv4_mem": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "abl_c5_dsv4_mem",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_dsv4_m1u.md",
+    },
     # -------------------------------------------------------------------------
     # D-008 memory ablation (post-RN-003). All stacked on RAG+SR
     # (plugin_enabled=True, stop_hook_enabled=True-by-default). Each variant

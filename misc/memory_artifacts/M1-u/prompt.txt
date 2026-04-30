@@ -23,168 +23,78 @@ You are given trajectory summaries only (no ground-truth feedback). Infer useful
 
 Below are observations from training tasks the agent has previously attempted. Produce a single markdown cheatsheet that distills cross-task patterns and anti-patterns to help future tasks succeed.
 
-## Training trajectory observations (36 tasks)
+## Training trajectory observations (18 tasks)
 
 ### Training task #1
-- final_treesim: 0.9983
-- productive RAG queries (sanitized): ['triaxial driver strain control oedometric compression single element', '<xml_filename_stripped>', 'ViscoplasticModifiedCamClay', 'DruckerPrager', 'ViscoDruckerPrager']
-- tool call summary: rag=10 reads=9 writes=2
+- final_treesim: 1.0
+- tool call summary: rag=0 reads=38 writes=5
 
 ### Training task #2
-- final_treesim: 0.9695
-- productive RAG queries (sanitized): ['hydrofracture solver hydraulic fracture propagation KGD toughness dominated', 'Hydrofracture solver XML', 'Hydrofracture example XML mesh boundary conditions', 'InternalMesh bias element geometric', 'fracture flow parallel plates permeability model']
-- tool call summary: rag=8 reads=4 writes=2
+- final_treesim: 0.9484
+- tool call summary: rag=0 reads=50 writes=2
 
 ### Training task #3
-- final_treesim: 0.9572
-- productive RAG queries (sanitized): ['triaxial driver example Extended Drucker Prager', 'ExtendedDruckerPrager', '<xml_filename_stripped>', 'TriaxialDriver', 'TriaxialDriver name']
-- tool call summary: rag=7 reads=5 writes=1
+- final_treesim: 0.9336
+- tool call summary: rag=0 reads=13 writes=4
 
 ### Training task #4
-- final_treesim: 0.9317
-- productive RAG queries (sanitized): ['hydraulic fracture KGD viscosity dominated simulation setup', 'Hydrofracture solver XML example', 'CompressibleSinglePhaseFluid', 'ElasticIsotropic', 'CompressibleSolidParallelPlatesPermeability']
-- tool call summary: rag=15 reads=3 writes=3
+- final_treesim: 0.9625
+- tool call summary: rag=0 reads=11 writes=3
 
 ### Training task #5
-- final_treesim: 0.8978
-- productive RAG queries (sanitized): ['hydrofracture solver configuration radial penny-shaped fracture benchmark', 'Hydrofracture solver XML example', 'ParallelPlatesPermeability', 'SourceFlux', 'SourceFlux scale']
-- tool call summary: rag=10 reads=4 writes=2
+- final_treesim: 0.9989
+- tool call summary: rag=0 reads=29 writes=2
 
 ### Training task #6
-- final_treesim: 0.8804
-- productive RAG queries (sanitized): ['Lagrangian contact surface generation Coulomb friction solid mechanics wellbore casing cement rock interfaces', 'CasedElasticWellbore', 'SolidMechanicsLagrangeContact', 'SurfaceGenerator', 'SurfaceGenerator name']
-- tool call summary: rag=8 reads=11 writes=3
+- final_treesim: 0.7048
+- tool call summary: rag=0 reads=32 writes=3
 
 ### Training task #7
-- final_treesim: 0.8671
-- productive RAG queries (sanitized): ['solid mechanics Lagrangian FEM solver configuration', 'wellbore mesh generator internal mesh radial', 'InternalWellbore mesh attribute', 'SolidMechanicsLagrangianFEM solver attributes', 'ElasticIsotropic constitutive model']
-- tool call summary: rag=14 reads=7 writes=2
+- final_treesim: 0.8685
+- tool call summary: rag=0 reads=39 writes=2
 
 ### Training task #8
-- final_treesim: 0.866
-- productive RAG queries (sanitized): ['hydrofracture solver XML example hydraulic fracture benchmark', 'Hydrofracture solver attributes', 'InternalMesh xCoords yCoords zCoords nx ny nz', 'fracture surface region element regions hydraulic aperture', 'kgdToughnessDominated benchmark xml']
-- tool call summary: rag=12 reads=2 writes=2
+- final_treesim: 0.9867
+- tool call summary: rag=0 reads=6 writes=2
 
 ### Training task #9
-- final_treesim: 0.8569
-- productive RAG queries (sanitized): ['SolidMechanicsLagrangianFEM solid mechanics finite element', 'InternalMesh radial elementTypes C3D8', 'InternalWellbore', 'cellBlockNames InternalWellbore', 'traction FieldSpecification']
-- tool call summary: rag=10 reads=12 writes=3
+- final_treesim: 0.8582
+- tool call summary: rag=0 reads=12 writes=3
 
 ### Training task #10
-- final_treesim: 0.8508
-- productive RAG queries (sanitized): ['thermal compressible flow single phase thermal', 'SinglePhaseThermalFVM', 'thermal fluid constitutive model volumetric heat capacity', 'SolidInternalEnergy', 'SinglePhaseThermalConductivity']
-- tool call summary: rag=11 reads=8 writes=2
+- final_treesim: 0.9239
+- tool call summary: rag=0 reads=58 writes=2
 
 ### Training task #11
-- final_treesim: 0.8441
-- productive RAG queries (sanitized): ['compositional multiphase flow dead oil fluid example', 'DeadOilFluid', 'CompositionalMultiphaseFVM well source flux sink pressure', 'SourceFlux', 'SourceFlux injection water']
-- tool call summary: rag=13 reads=9 writes=2
+- final_treesim: 0.8849
+- tool call summary: rag=0 reads=31 writes=2
 
 ### Training task #12
-- final_treesim: 0.8043
-- productive RAG queries (sanitized): ['dead oil two phase flow well simulation XML example', 'DeadOilFluid well XML example', 'CompositionalMultiphaseWell', 'DeadOilFluid', 'CompositionalMultiphaseFVM CompositionalMultiphaseWell']
-- tool call summary: rag=16 reads=15 writes=3
+- final_treesim: 0.9464
+- tool call summary: rag=0 reads=33 writes=4
 
 ### Training task #13
-- final_treesim: 0.8023
-- productive RAG queries (sanitized): ['Visco Extended Drucker Prager constitutive model parameters', 'ViscoExtendedDruckerPrager constitutive', 'InternalMesh elementBlocks segment xCoords yCoords zCoords', 'cellBlockNames InternalMesh', 'SolidMechanicsLagrangianFEM']
-- tool call summary: rag=16 reads=8 writes=2
+- final_treesim: 0.8657
+- tool call summary: rag=0 reads=15 writes=2
 
 ### Training task #14
-- final_treesim: 0.7564
-- productive RAG queries (sanitized): ['poromechanics coupled single phase flow solid mechanics internal wellbore mesh', 'InternalMesh wellbore radial tangential z elements', 'SinglePhasePoromechanics', 'SinglePhasePoromechanics flowSolverName solidSolverName', 'InternalWellbore']
-- tool call summary: rag=11 reads=6 writes=3
+- final_treesim: 0.9393
+- tool call summary: rag=0 reads=57 writes=2
 
 ### Training task #15
-- final_treesim: 0.7347
-- productive RAG queries (sanitized): ['compositional multiphase flow well injection CO2', 'TableFunction nearest neighbor permeability interpolation', 'external table function voxel permeability interpolation', 'FieldCaseTutorial table function perm.geos', 'TableFunction voxelFile coordinateFile']
-- tool call summary: rag=23 reads=10 writes=2
+- final_treesim: 0.796
+- tool call summary: rag=0 reads=26 writes=2
 
 ### Training task #16
-- final_treesim: 0.712
-- productive RAG queries (sanitized): ['poromechanics coupled single phase poromechanics example XML', 'SinglePhasePoromechanics', 'VTKMesh', 'CellElementRegion', 'ElasticIsotropic']
-- tool call summary: rag=12 reads=4 writes=4
+- final_treesim: 0.7669
+- tool call summary: rag=0 reads=51 writes=3
 
 ### Training task #17
-- final_treesim: 0.5964
-- productive RAG queries (sanitized): ['contact mechanics intersecting fractures solid mechanics Lagrangian contact solver', 'contact solver Lagrangian', 'InternalMesh refinement transition elements', 'Lagrangian contact solver fracture Coulomb friction', 'EmbeddedSurface fracture region']
-- tool call summary: rag=14 reads=5 writes=5
+- final_treesim: 0.8275
+- tool call summary: rag=0 reads=20 writes=3
 
 ### Training task #18
-- final_treesim: 0.5371
-- productive RAG queries (sanitized): ['temperature dependent thermal conductivity isotropic gradient linear temperature dependence', 'ThermalConductivity constitutive model temperature dependent', 'single phase thermal flow solver finite volume thermal', 'SinglePhaseThermalFVM solver', 'SinglePhaseThermalFVM']
-- tool call summary: rag=12 reads=10 writes=2
-
-### Training task #19
-- final_treesim: 0.1667
-- tool call summary: rag=0 reads=27 writes=7
-
-### Training task #20
-- final_treesim: 0.0
-- tool call summary: rag=0 reads=0 writes=3
-
-### Training task #21
-- final_treesim: None
-- tool call summary: rag=0 reads=1 writes=10
-
-### Training task #22
-- final_treesim: None
-- tool call summary: rag=0 reads=0 writes=4
-
-### Training task #23
-- final_treesim: 1.0
-- tool call summary: rag=0 reads=19 writes=4
-
-### Training task #24
-- final_treesim: 0.9968
-- tool call summary: rag=0 reads=34 writes=7
-
-### Training task #25
-- final_treesim: 0.13
-- tool call summary: rag=0 reads=0 writes=2
-
-### Training task #26
-- final_treesim: 0.1613
-- tool call summary: rag=0 reads=0 writes=2
-
-### Training task #27
-- final_treesim: 0.0185
-- tool call summary: rag=0 reads=0 writes=3
-
-### Training task #28
-- final_treesim: None
-- tool call summary: rag=0 reads=0 writes=0
-
-### Training task #29
-- final_treesim: 0.1599
-- tool call summary: rag=0 reads=2 writes=2
-
-### Training task #30
-- final_treesim: 0.0
-- tool call summary: rag=0 reads=4 writes=9
-
-### Training task #31
-- final_treesim: 0.1285
-- tool call summary: rag=0 reads=2 writes=5
-
-### Training task #32
-- final_treesim: 0.0
-- tool call summary: rag=0 reads=0 writes=2
-
-### Training task #33
-- final_treesim: 0.9642
-- tool call summary: rag=0 reads=14 writes=2
-
-### Training task #34
-- final_treesim: None
-- tool call summary: rag=0 reads=0 writes=3
-
-### Training task #35
-- final_treesim: 0.9966
-- tool call summary: rag=0 reads=23 writes=4
-
-### Training task #36
-- final_treesim: 0.8813
-- tool call summary: rag=0 reads=5 writes=5
+- final_treesim: 0.8967
+- tool call summary: rag=0 reads=13 writes=3
 
 Now produce the cheatsheet.

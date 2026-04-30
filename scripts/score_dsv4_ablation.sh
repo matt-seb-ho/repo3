@@ -16,6 +16,7 @@ case "$COND" in
   c2) AGENT="abl_c2_min_sr_no_rag" ;;
   c3) AGENT="abl_c3_min_rag_no_sr" ;;
   c4) AGENT="abl_c4_min_rag_sr" ;;
+  c5) AGENT="abl_c5_dsv4_mem" ;;
   *) echo "unknown condition: $COND" >&2; exit 2 ;;
 esac
 

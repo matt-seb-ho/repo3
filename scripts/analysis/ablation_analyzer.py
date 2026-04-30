@@ -318,7 +318,12 @@ def main():
     ap.add_argument("--cond-b-name", required=True)
     ap.add_argument("--cond-b-agent", required=True)
     ap.add_argument("--cond-b-runs", nargs="+", required=True)
-    ap.add_argument("--eval-root", default="data/eval/results")
+    ap.add_argument("--eval-root", default="data/eval/results",
+                    help="default eval root used for both conditions unless overridden")
+    ap.add_argument("--cond-a-eval-root", default=None,
+                    help="optional eval root specific to condition A")
+    ap.add_argument("--cond-b-eval-root", default=None,
+                    help="optional eval root specific to condition B")
     ap.add_argument("--gt-dir", default="/data/shared/geophysics_agent_data/data/eval/experiments_gt")
     ap.add_argument("--threshold", type=float, default=0.10)
     ap.add_argument("--focus", choices=["degradations","improvements","both"], default="both")
@@ -330,8 +335,10 @@ def main():
     a_runs = [Path(p) for p in args.cond_a_runs]
     b_runs = [Path(p) for p in args.cond_b_runs]
 
-    a_scores = _per_task_treesim(a_runs, Path(args.eval_root), args.cond_a_agent)
-    b_scores = _per_task_treesim(b_runs, Path(args.eval_root), args.cond_b_agent)
+    a_eval_root = Path(args.cond_a_eval_root or args.eval_root)
+    b_eval_root = Path(args.cond_b_eval_root or args.eval_root)
+    a_scores = _per_task_treesim(a_runs, a_eval_root, args.cond_a_agent)
+    b_scores = _per_task_treesim(b_runs, b_eval_root, args.cond_b_agent)
     all_tasks = sorted(set(a_scores) | set(b_scores))
     per_task_a = {t: statistics.mean(a_scores[t]) for t in a_scores}
     per_task_b = {t: statistics.mean(b_scores[t]) for t in b_scores}
@@ -373,8 +380,8 @@ def main():
             print(f"  [warn] skip {t}: no seed dir found", file=sys.stderr)
             continue
         # eval JSONs
-        a_eval = Path(args.eval_root) / a_runs[0].name / args.cond_a_agent / f"{t}_eval.json"
-        b_eval = Path(args.eval_root) / b_runs[0].name / args.cond_b_agent / f"{t}_eval.json"
+        a_eval = a_eval_root / a_runs[0].name / args.cond_a_agent / f"{t}_eval.json"
+        b_eval = b_eval_root / b_runs[0].name / args.cond_b_agent / f"{t}_eval.json"
         analyses[t] = {
             "tool_use": diff_tool_use(a_dir, b_dir),
             "treesim":  treesim_analyze(a_dir, b_dir, a_eval, b_eval, schema_path=schema),

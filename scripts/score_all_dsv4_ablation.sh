@@ -9,12 +9,13 @@ cd /home/matt/sci/repo3
 
 ROOT="/data/shared/geophysics_agent_data/data/eval/dsv4_ablation_2026-04-29"
 
-for COND in c0 c2 c3 c4; do
+for COND in c0 c2 c3 c4 c5; do
   case "$COND" in
     c0) AGENT="abl_c0_true_vanilla" ;;
     c2) AGENT="abl_c2_min_sr_no_rag" ;;
     c3) AGENT="abl_c3_min_rag_no_sr" ;;
     c4) AGENT="abl_c4_min_rag_sr" ;;
+    c5) AGENT="abl_c5_dsv4_mem" ;;
   esac
   for SEED in 1 2 3; do
     RUN_NAME="${COND}_dsv4_s${SEED}"
@@ -43,12 +44,13 @@ done
 # Print per-(cond,seed) means
 echo ""
 echo "=== Summary ==="
-for COND in c0 c2 c3 c4; do
+for COND in c0 c2 c3 c4 c5; do
   case "$COND" in
     c0) AGENT="abl_c0_true_vanilla" ;;
     c2) AGENT="abl_c2_min_sr_no_rag" ;;
     c3) AGENT="abl_c3_min_rag_no_sr" ;;
     c4) AGENT="abl_c4_min_rag_sr" ;;
+    c5) AGENT="abl_c5_dsv4_mem" ;;
   esac
   for SEED in 1 2 3; do
     RUN_NAME="${COND}_dsv4_s${SEED}"
