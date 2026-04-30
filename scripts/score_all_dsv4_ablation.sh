@@ -9,7 +9,7 @@ cd /home/matt/sci/repo3
 
 ROOT="/data/shared/geophysics_agent_data/data/eval/dsv4_ablation_2026-04-29"
 
-for COND in c0 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11; do
+for COND in c0 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 cMPa cMPb; do
   case "$COND" in
     c0) AGENT="abl_c0_true_vanilla" ;;
     c2) AGENT="abl_c2_min_sr_no_rag" ;;
@@ -22,6 +22,8 @@ for COND in c0 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11; do
     c9) AGENT="abl_c9_no_prefix" ;;
     c10) AGENT="abl_c10_xmllint_hook_mem" ;;
     c11) AGENT="abl_c11_xmllint_full_mem" ;;
+    cMPa) AGENT="abl_cMP_a_memp_on_c2" ;;
+    cMPb) AGENT="abl_cMP_b_memp_on_c7" ;;
   esac
   for SEED in 1 2 3; do
     RUN_NAME="${COND}_dsv4_s${SEED}"
@@ -50,7 +52,7 @@ done
 # Print per-(cond,seed) means
 echo ""
 echo "=== Summary ==="
-for COND in c0 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11; do
+for COND in c0 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 cMPa cMPb; do
   case "$COND" in
     c0) AGENT="abl_c0_true_vanilla" ;;
     c2) AGENT="abl_c2_min_sr_no_rag" ;;
@@ -63,6 +65,8 @@ for COND in c0 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11; do
     c9) AGENT="abl_c9_no_prefix" ;;
     c10) AGENT="abl_c10_xmllint_hook_mem" ;;
     c11) AGENT="abl_c11_xmllint_full_mem" ;;
+    cMPa) AGENT="abl_cMP_a_memp_on_c2" ;;
+    cMPb) AGENT="abl_cMP_b_memp_on_c7" ;;
   esac
   for SEED in 1 2 3; do
     RUN_NAME="${COND}_dsv4_s${SEED}"
