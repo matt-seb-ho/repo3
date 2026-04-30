@@ -310,8 +310,10 @@ def main():
 
     treesims = [r["treesim"] for r in round_results if r["treesim"] is not None]
     mean_ts = sum(treesims) / len(treesims) if treesims else 0
+    def _ts_str(t):
+        return f"{t:.3f}" if t is not None else "N/A"
     round_summary = "\n\n".join(
-        f"--- {r['task']} (treesim {r['treesim']:.3f if r['treesim'] is not None else 'N/A'}) ---\n{r['trajectory']}"
+        f"--- {r['task']} (treesim {_ts_str(r['treesim'])}) ---\n{r['trajectory']}"
         for r in round_results
     )
 
