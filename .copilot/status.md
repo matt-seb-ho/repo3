@@ -9,9 +9,10 @@ Sleep ended:
 max_experiments: 20
 max_hours: 6
 diminishing_returns: 3
-Cycle: 0
+Cycle: 1
 Consecutive_no_improvement: 0
 Consecutive_errors: 0
+Last_cycle: Task 1 (MemP) complete; cMPa=0.921, cMPb=0.916 — both null over no-memory baselines on DSv4. Doc: docs/2026-04-30_TASK1_memp.md
 
 Current task: Overnight autonomous research per
 `misc/apr30_overnight_instructions.md`. Three major tasks:
