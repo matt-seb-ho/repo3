@@ -3,42 +3,32 @@ Autonomy: full
 Project: repo3
 Updated: 2026-04-30
 
-Researcher: sleeping
+Researcher: present
 Sleep started: 2026-04-30T11:08:00Z
-Sleep ended:
+Sleep ended: 2026-04-30T13:30:00Z
 max_experiments: 20
 max_hours: 6
 diminishing_returns: 3
-Cycle: 1
+Cycle: 3
 Consecutive_no_improvement: 0
 Consecutive_errors: 0
-Last_cycle: Task 1 (MemP) complete; cMPa=0.921, cMPb=0.916 — both null over no-memory baselines on DSv4. Doc: docs/2026-04-30_TASK1_memp.md
+Last_cycle (1): Task 1 (MemP) complete; cMPa=0.921, cMPb=0.916 — both null over no-memory baselines on DSv4. Doc: docs/2026-04-30_TASK1_memp.md
+Last_cycle (2): Task 3 (self-evolving) complete; v3 vs v0 = +0.029 paired on 6 same tasks (0.931 → 0.960). Agent self-authored a dependency-copier subagent at v3. Doc: docs/2026-04-30_TASK3_self_evolving.md
+Last_cycle (3): Task 2 (orchestrator P1-fixed) complete; mean=0.781±0.020 across 3 seeds — LOSES to single-agent C6 (0.921) by 0.14pp. Preliminary +0.204 was P1-violation-driven. Doc: docs/2026-04-30_TASK2_orchestrator.md
 
-Current task: Overnight autonomous research per
-`misc/apr30_overnight_instructions.md`. Three major tasks:
+Current task: Overnight session complete. All 3 major tasks done.
+See `docs/2026-04-30_OVERNIGHT_SUMMARY.md` for the master index and
+headlines. Three followups worth queuing:
+  1. Self-evolving on full 17-task set (currently v3 only validated
+     on 6 round-0 tasks).
+  2. Test v3's emergent `dependency-copier` subagent against
+     `plugin_orchestrator/`'s hand-designed subagents.
+  3. Confirm: drop memory from production stack on DSv4 (Task 1
+     null result).
 
-1. **MemP memory** (in flight): paper notes + library + per-task primers
-   done; smoketest cMP-b on Mandel running. Need to launch full
-   cMPa + cMPb × 3 seeds, score, write big summary doc, hand off.
-
-2. **Multi-agent orchestrator refresh**: read
-   `docs/2026-04-30_subagent-orchestrator-handoff.md`, update with
-   xmllint stack + drop RAG (per DSv4 ablation findings), 3-seed
-   eval, big writeup.
-
-3. **Self-evolving agent**: design doc choosing init (blank vs
-   hand-best) + offline-vs-online; implement extended memory
-   pipeline (skills + subagents); plugin versioning between
-   agent edits; 17-task eval comparing to human-designed and
-   self-prior versions; big writeup.
-
-After each major task: big summary doc + small handoff doc + commit
-+ next task. Reload `misc/apr30_overnight_instructions.md` if state
-gets fuzzy.
-
-Big summary docs to read tomorrow:
-- docs/2026-04-30_dsv4-ablation-SESSION-SUMMARY.md (DONE — Task 0)
-- docs/2026-04-30_TASK1_memp.md (in progress)
-- docs/2026-04-30_TASK2_orchestrator.md (pending)
-- docs/2026-04-30_TASK3_self_evolving.md (pending)
-- docs/2026-04-30_OVERNIGHT_SUMMARY.md (master index — write last)
+Big summary docs to read:
+- docs/2026-04-30_OVERNIGHT_SUMMARY.md (master index — read first)
+- docs/2026-04-30_dsv4-ablation-SESSION-SUMMARY.md (Task 0)
+- docs/2026-04-30_TASK1_memp.md (Task 1)
+- docs/2026-04-30_TASK2_orchestrator.md (Task 2)
+- docs/2026-04-30_TASK3_self_evolving.md (Task 3)

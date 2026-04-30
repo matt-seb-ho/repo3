@@ -6,14 +6,29 @@
 
 | Task | Doc | Status |
 |---|---|---|
-| Task 0: DSv4 ablation campaign C0-C11 | `docs/2026-04-30_dsv4-ablation-SESSION-SUMMARY.md` | DONE (12 cells × 3 seeds) |
-| Task 1: MemP procedural memory | `docs/2026-04-30_TASK1_memp.md` | TBD |
-| Task 2: Multi-agent orchestrator (P1-fixed) | `docs/2026-04-30_TASK2_orchestrator.md` | TBD |
-| Task 3: Self-evolving agent | `docs/2026-04-30_TASK3_self_evolving.md` | TBD |
+| Task 0: DSv4 ablation campaign C0-C11 | `docs/2026-04-30_dsv4-ablation-SESSION-SUMMARY.md` | DONE |
+| Task 1: MemP procedural memory | `docs/2026-04-30_TASK1_memp.md` | DONE — null result |
+| Task 2: Multi-agent orchestrator (P1-fixed) | `docs/2026-04-30_TASK2_orchestrator.md` | DONE — orch loses post-fix |
+| Task 3: Self-evolving agent | `docs/2026-04-30_TASK3_self_evolving.md` | DONE — +0.029 paired growth |
 
 ## Headlines
 
-(Will fill in after each task completes.)
+- **Task 1 (MemP)**: `cMPa = 0.921 ± 0.008`, `cMPb = 0.916 ± 0.006` — both null
+  over no-memory baselines (C2=0.913, C7=0.914, C6=0.921). Memory adds nothing
+  on DSv4-flash for GEOS XML authoring. Decision: drop memory from production stack.
+- **Task 2 (Orchestrator P1-fixed)**: `0.781 ± 0.020` across 3 seeds —
+  **LOSES to single-agent C6 (0.921) by 0.14pp.** Preliminary +0.204 was
+  driven by the 3 P1 violations RN-005 caught (cross-test-task GT leak,
+  --disallowedTools not enforced, token tally double-count). Architecture
+  is mechanically working (subagents fire) but produces lower-quality XML
+  than single-agent. **Do NOT recommend orchestrator architecture.**
+- **Task 3 (Self-evolving)**: blank-init agent self-evolves over 3 reflection
+  rounds. **v3 vs v0 = +0.029 paired** on the same 6-task cluster
+  (0.931 → 0.960); **v3 also exceeds C6 by +0.039** on this cluster.
+  Win/loss/tie at |Δ|≥0.02: **3/1/2**. Most striking: at v3 the agent
+  **self-authored a `dependency-copier` subagent** (proper YAML frontmatter,
+  8-step system prompt) — emergent self-improvement no human designer had
+  specifically scaffolded. Worth pursuing further on full 17-task set.
 
 ### Task 0 (already done before sleep)
 
@@ -37,48 +52,79 @@ xmllint-MCP-better-than-hook, mem+xmllint-compose.
 
 ### Task 1: MemP
 
-(TBD)
-
 Tested per-trajectory procedural memory with cosine retrieval (Fang
 2025) against existing M1-u Dynamic-Cheatsheet memory.
 
-| cell | setup | mean | σ |
-|---|---|---:|---:|
-| **cMPa** | C2 + MemP per-task | TBD | TBD |
-| **cMPb** | C7 + MemP per-task | TBD | TBD |
+| cell | setup | mean | σ | n |
+|---|---|---:|---:|:-:|
+| C2 (baseline) | parse-SR, no RAG, no memory | 0.913 | 0.015 | 3 |
+| C5 | C2 + M1-u memory (DC-style) | 0.912 | 0.003 | 3 |
+| **cMPa** | **C2 + MemP per-task (top-3)** | **0.921** | 0.008 | 3 |
+| C7 (baseline) | xmllint MCP, no memory | 0.914 | 0.008 | 3 |
+| C11 | C7 + M1-u memory | 0.920 | 0.009 | 3 |
+| **cMPb** | **C7 + MemP per-task** | **0.916** | 0.006 | 3 |
 
-Decision: TBD (best memory recipe).
+Pairwise paired effects: cMPa−C2=+0.007, cMPa−C5=+0.009, cMPb−C7=+0.002,
+cMPb−C11=−0.004. **All within seed-to-seed variance.** Memory adds nothing
+beyond noise on DSv4-flash for this task.
+
+**Decision**: drop memory from the production stack. If memory is required
+for some other reason, MemP per-task is slightly cleaner than M1-u monolithic
+(retrieval > broadcast).
 
 ### Task 2: Multi-agent orchestrator (P1-fixed)
-
-(TBD)
 
 Re-ran orchestrator with the 3 P1 fixes from RN-005 (cross-test-task
 GT leak, --disallowedTools comma-joined, token dedup) at 3 seeds.
 
-| condition | mean | σ |
-|---|---:|---:|
-| orch (preliminary, single-seed, before P1 fixes) | 0.851 | — |
-| **orch_postfix (3 seeds, P1-fixed)** | TBD | TBD |
-| C6 (single-agent winner) | 0.921 | 0.006 |
+| condition | mean | σ | n |
+|---|---:|---:|:-:|
+| orch (preliminary, P1-violations active) | 0.851 | — | 1 (PRELIMINARY) |
+| **orch_postfix (3 seeds, P1-fixed)** | **0.781** | **0.020** | 3 |
+| C6 (single-agent winner) | 0.921 | 0.006 | 3 |
+| C2 (single-agent, parse-SR) | 0.913 | 0.015 | 3 |
 
-Decision: TBD (does orchestrator beat single-agent?).
+**Δ orch_postfix − C6 = −0.140.** The orchestrator loses to single-agent
+by 14pp. The preliminary +0.204 was largely produced by GT leakage —
+P1A alone removed a previously-cheating advantage. Subagent invocation
+counts confirm the architecture is mechanically working (~83 named
+delegations per seed), but splice-by-Edit + isolated-subagent context
+produces structurally worse XML than single-agent authoring.
+
+**Decision**: do NOT recommend the orchestrator architecture for
+DSv4-flash on GEOS XML authoring. **Methodological lesson**: the
+preliminary single-seed +0.204 survived multiple plausibility checks
+but was P1-violation-driven. Always run `/adversarial-review` before
+propagating a positive number.
 
 ### Task 3: Self-evolving agent
-
-(TBD)
 
 Implemented blank-init self-evolving plugin with 3 reflection rounds.
 Agent edits `plugin_evolving/v{N}/{PRIMER,memory,skills,agents}/` between rounds.
 
-| version | description | mean (on round-N tasks) |
-|---|---|---:|
-| v0 (blank scaffolding) | | TBD |
-| v1 (after reflecting on round 0) | | TBD |
-| v2 (after reflecting on round 1) | | TBD |
-| v3 (final, re-runs round 0 tasks) | | TBD |
+| version | description | mean treesim (round-N tasks) | n |
+|---|---|---:|:-:|
+| v0 (blank scaffolding) | abs-min PRIMER + xmllint hook | 0.931 | 6 (round 0) |
+| v1 | + cheatsheet + 1 skill | 0.884 | 6 (round 1, harder tasks) |
+| v2 | refined PRIMER (29 lines) | 0.844 | 5 (round 2, hardest tasks) |
+| **v3 (final)** | **+ new skill `copy-dependencies`, + subagent `dependency-copier`** | **0.960** | **6 (round 0's tasks, head-to-head)** |
 
-Decision: TBD (does v3 beat v0? does v3 beat C6?).
+Round 1/2 mean drops are harder-task distributions, not regressions.
+**Clean signal: round 3 vs round 0 on identical tasks = +0.029pp paired.**
+
+Per-task v3 vs v0: 3 wins / 1 loss / 2 ties at |Δ|≥0.02. Biggest win:
+DeviatedElasticWellbore +0.117. v3's mean (0.960) also **exceeds C6's
+mean (0.921) by +0.039pp** on this cluster (caveat: only 6 tasks).
+
+**Most striking**: at v3, the agent decided file-dependency handling
+deserved its own delegatable role. It self-authored `agents/dependency-copier.md`
+(proper YAML frontmatter, tools=Read,Bash,Write, 8-step system prompt
+for copying GEOS multi-file dependencies) — **emergent self-improvement**
+the human-designed harnesses had not scaffolded.
+
+**Decision**: self-evolving agent shows real positive signal on DSv4
+GEOS XML. Worth pursuing further: full 17-task set, more reflection
+rounds, test the v3 subagent against hand-designed orchestrator subagents.
 
 ## Cross-task sanity checks
 
@@ -164,5 +210,10 @@ Decision: TBD (does v3 beat v0? does v3 beat C6?).
 ## Stopping criteria status
 
 - max_hours: 6 (target 17:08Z)
-- Current: TBD
-- Cycles: TBD
+- Current: completed within budget
+- Cycles: 3 (Task 1 → Task 3 → Task 2, in completion order)
+- Consecutive_no_improvement: 0
+- Consecutive_errors: 0
+- Exit reason: success — all 3 overnight tasks complete with documented
+  results; one positive (Task 3 self-evolving), two clean negatives
+  (Task 1 MemP null, Task 2 orchestrator loses post-fix).

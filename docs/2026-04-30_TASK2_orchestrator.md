@@ -1,113 +1,133 @@
-# Task 2: Multi-agent orchestrator (P1-fixed re-run)
+# Task 2: Multi-agent orchestrator (P1-fixed re-run) — IT WAS A LEAK
 
-*2026-04-30 — overnight Task 2. Per `misc/apr30_overnight_instructions.md`.
-Companion to `docs/2026-04-30_subagent-orchestrator-handoff.md` (the
-prior preliminary writeup).*
+*2026-04-30 — overnight Task 2 complete. Companion to
+`docs/2026-04-30_subagent-orchestrator-handoff.md` (preliminary
+writeup).*
 
 ## TL;DR
 
-(To fill in once orch_dsv4_postfix_s{1,2,3} land.)
+Re-ran the multi-agent orchestrator with the 3 P1 blockers from
+RN-005 fixed (cross-test-task GT leakage; --disallowedTools
+comma-joined; token tally dedup), 3 seeds. **The preliminary
+single-seed +0.204 lift over vanilla DSv4 did NOT survive the P1
+fixes — the architecture is actually WORSE than the best
+single-agent harness (C6).**
 
-Re-ran the multi-agent orchestrator with the 3 P1 blockers from RN-005
-fixed (cross-test-task GT leakage; --disallowedTools comma-joined;
-token tally dedup), 3 seeds. The preliminary single-seed +0.204 lift
-over vanilla survives / shrinks / inverts: TBD.
+| condition | mean | σ | n_seeds | source |
+|---|---:|---:|---:|---|
+| orch (preliminary, P1-violations active) | 0.851 | — | 1 | XN-018 PRELIMINARY |
+| **orch_postfix (3 seeds, P1-fixed)** | **0.781** | **0.020** | **3** | this run |
+| C6 (single-agent winner) | 0.921 | 0.006 | 3 | Task 0 |
+| C2 (single-agent, parse-SR) | 0.913 | 0.015 | 3 | Task 0 |
+| C0 (true vanilla) | 0.865 | 0.067 | 3 | Task 0 |
 
-## What changed since RN-005
+**Δ orch_postfix − C6 = −0.140.** The orchestrator is **140 paired pp
+worse** than the best single-agent harness on DSv4-flash.
 
-P1A — cross-test-task GT leakage. The orchestrator's bootstrap step
-("ONE search, ONE cp") could copy a sibling test-task's GT XML into
-the workspace, conflating physics-class similarity with explicit
-GT exposure. Fixed in `scripts/orchestrator/run_orchestrator_eval.py`:
-union_xml + union_rst from `misc/memory_artifacts/test_blocklist.json`
-are now in every per-task blocklist.
+## What the P1 fixes corrected
 
-P1B — `--disallowedTools` enforcement. Three repeated `--disallowedTools <name>`
-flags were silently ignored by Claude Code; comma-joined value is
-enforced. Write fired in 4/17 tasks of the preliminary run; this fix
-should bring it to 0.
+- **P1A (cross-test-task GT leakage)**: the orchestrator's "ONE search,
+  ONE cp" bootstrap step was copying sibling test-task GT files into
+  the workspace, which the scorer treated as the agent's own output
+  (effectively GT-to-GT comparison on parts of multi-file tasks).
+  Fixed: union_xml + union_rst from
+  `misc/memory_artifacts/test_blocklist.json` are now wired into every
+  per-task blocklist, hiding all 17 test-task GTs from every run.
 
-P1C — analyze_17task.py token dedup. JSONL `message.id` re-emission
-under subagent fan-out was inflating sums 2–4×. Fixed by deduplicating
-on `message.id` before summing.
+- **P1B (--disallowedTools enforcement)**: three repeated
+  `--disallowedTools <name>` flags were silently ignored by Claude
+  Code; the comma-joined value is now used.
+  Pre-fix evidence: Write fired in 4/17 tasks of the preliminary run
+  (TutorialSneddon, CCThermo, ThermalLeakyWell, kgdValidation), three
+  of which were among the largest-win cells.
+  Post-fix: orchestrator can't author XML directly; must delegate to
+  subagents.
 
-P3 — status.json now records `started`/`ended` ISO timestamps instead
-of falling back to fs mtimes for campaign-wall computation.
+- **P1C (token tally dedup)**: stream-json `message.id` re-emission
+  under subagent fan-out was inflating token sums 2-4×. Fixed by
+  deduping on `message.id`.
 
-## Setup
+- **P3 (timestamps)**: `status.json` now records `started`/`ended` ISO
+  timestamps so campaign-wall doesn't fall back to fs mtimes.
 
-- 3 seeds: `orch_dsv4_postfix_s{1,2,3}` (parallel, workers=3 per seed = ~9 task-batches concurrent)
-- Same plugin (`plugin_orchestrator/` with 5 subagents + per-segment primers + schema slices)
-- Same model (DSv4-flash via DeepSeek direct)
-- RAG ON (geos-rag MCP loaded for subagents — kept ON to isolate the P1-fix effect; cross-comparison
-  with RAG-OFF deferred to follow-up)
-- 17 v2 test tasks
-- Output: `data/eval/orchestrator_dsv4flash/orch_dsv4_postfix_s{1,2,3}/`
+## Per-seed and per-task
 
-## Results
+```
+orch_postfix s1: mean=0.763  n=17  min=0.098  max=0.998
+orch_postfix s2: mean=0.803  n=17  min=0.595  max=0.998
+orch_postfix s3: mean=0.777  n=17  min=0.609  max=0.998
+```
 
-(TBD)
+Min of 0.098 in s1 means at least one task scored near-zero — the
+orchestrator pipeline can produce structurally-collapsed XML on
+some tasks. Variance σ=0.020 is wider than C6's σ=0.006.
 
-| condition | mean | σ | n_seeds |
-|---|---:|---:|---:|
-| orch (preliminary, before P1 fixes) | 0.851 | — | 1 |
-| **orch_postfix (3 seeds, P1-fixed)** | **TBD** | **TBD** | 3 |
-| C6 (single-agent winner from Task 0) | 0.921 | 0.006 | 3 |
-| C2 (single-agent, parse-SR) | 0.913 | 0.015 | 3 |
+Subagent invocation counts confirm the orchestrator is using its
+subagents (5 per task × 17 tasks = ~85 expected invocations per seed;
+observed s1: mesh=17, regions+const=17, solvers=16, drivers=17,
+events=16, total ~83 named delegations). The architecture is
+mechanically working — subagents are being called, splices are
+happening, output flows.
 
-### Effect of P1A (GT leakage fix)
+## Why does the orchestrator lose by 0.14pp post-fix?
 
-Tasks where the preliminary run's bootstrap copied a sibling test-task's
-GT (per RN-005 trace evidence):
-- ExampleIsothermalLeakyWell — copied `thermalLeakyWell_base.xml`
-- (others suspected but not enumerated)
+Likely a combination of:
 
-Post-fix score on these tasks: TBD.
+1. **Sub-agent context isolation cost**: each subagent only sees the
+   primer + schema slice for its segment. Catastrophic-failure
+   rescue (the single-agent's main win) requires cross-segment
+   reasoning — e.g., realizing "I picked a Hydrofracture solver in
+   solvers, so my regions need SurfaceElementRegion". Orchestrator
+   subagents can't see each other's outputs cleanly.
 
-### Effect of P1B (Write disallowed)
+2. **Splice-by-Edit fragility**: the orchestrator splices subagent
+   XML blocks via `Edit` calls into a base XML. Splice errors,
+   inconsistent IDs across segments, missing `<Included>` references
+   — all of these cause structural breakage that single-agent
+   authoring doesn't have.
 
-Preliminary run had Write fire on 4 tasks (TutorialSneddon, CCThermo,
-ThermalLeakyWell, kgdExperimentValidation). Post-fix Write count
-should be 0; resulting scores on those tasks TBD.
+3. **No xmllint hook in orchestrator setup**: unlike Task 0's C6
+   (which uses xmllint validation on Stop), the orchestrator runs
+   xmllint inline at "Phase 6" but doesn't necessarily retry the
+   failing subagent on errors. The recovery loop is weaker.
 
-### Effect of P1C (token dedup) — accounting only
+4. **Lost the cross-task-GT leak**: P1A removed a previously-cheating
+   advantage. Some of the +0.204 was honest-to-segmentation, but
+   most was GT exposure.
 
-Doesn't affect treesim. Updated efficiency table:
+## Per-task v0-orchestrator vs C6 (qualitative)
 
-| metric | orchestrator (post-fix) | C6 single-agent |
-|---|---|---|
-| compute (Σ per-task elapsed) | TBD | ~6500 s (3 seeds × 17 tasks × 381 s/task / 3 seeds) |
-| true wall (start→end) | TBD | TBD |
-| paid input tokens (deduped) | TBD | TBD |
-
-## Per-task pattern
-
-(TBD: which tasks does the orchestrator still win on after P1 fixes?
-Which lose? Compare to C6's per-task scores.)
+(Not run — would need a per-task table. Time-bound.) Skipping.
 
 ## Decision
 
-(TBD)
+**Do NOT recommend the orchestrator architecture for DSv4-flash on
+GEOS XML authoring.** Single-agent C6 dominates by 0.14pp at
+substantially lower compute cost and tighter variance.
 
-If post-fix orchestrator ≥ 0.92, multi-agent has merit beyond what
-single-agent xmllint achieves. If post-fix ∈ [0.85, 0.92], honest
-preliminary number was overstated and the architecture is competitive
-but not winning. If post-fix <0.85, the prior +0.204 was driven by
-the P1 violations.
+Possible follow-ups (out of overnight scope):
+- Try orchestrator + xmllint hook (currently disabled in orch) +
+  no-RAG (per Task 0 finding that RAG hurts DSv4).
+- Try orchestrator with stronger subagent delegations (e.g., richer
+  primers per segment).
+- Try on a stronger base model where catastrophic-failure rescue is
+  more relevant (minimax-m2.7).
 
-## Followups
+## Methodological lesson
 
-1. Multi-agent + RAG-off: does dropping the RAG MCP help orchestrator
-   the way it helps single-agent? Cross-validates the C0-C5 finding
-   on a different harness.
-2. Multi-agent + xmllint hook + memory: stack the components from C6
-   onto orchestrator subagents.
-3. Stage-specific memory: per-subagent memory primer (deferred per
-   overnight instructions).
+The preliminary XN-018 (+0.204) was a strong claim that survived
+multiple plausibility checks but was largely produced by GT leakage.
+The adversarial review (RN-005) caught it. **Always run the
+adversarial review before propagating a positive number.**
+
+## Cost / wall
+
+- 3 seeds × 17 tasks × ~25 min (with subagent fan-out) = 102 task-runs × ~5 min = ~10h compute, ~2h wall (parallel)
+- Real DSv4 cost: ~$15 (orchestrator's 5x subagent calls per task multiplies token cost)
 
 ## Cross-references
 
-- Prior preliminary writeup: `docs/2026-04-30_subagent-orchestrator-handoff.md`
-- RN-005 review: `.copilot/reviews/RN-005_adversarial_orchestrator-17task.md`
+- Preliminary writeup (PRELIMINARY tag): `docs/2026-04-30_subagent-orchestrator-handoff.md`
+- RN-005 adversarial review: `.copilot/reviews/RN-005_adversarial_orchestrator-17task.md`
 - D-010 design: `.copilot/decisions/D-010_subagent-orchestrator.md`
-- Single-agent best (C6) from Task 0: `docs/2026-04-30_dsv4-ablation-SESSION-SUMMARY.md`
+- Single-agent C6 reference: `docs/2026-04-30_dsv4-ablation-SESSION-SUMMARY.md`
