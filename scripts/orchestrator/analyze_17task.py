@@ -126,13 +126,19 @@ def compute_campaign_wall(run_dir: Path) -> float | None:
 
 
 def tally_jsonl_usage(path: Path) -> tuple[int, int, int, int]:
-    """Sum usage across all `message.usage` entries in a JSONL file.
+    """Sum usage across DISTINCT `message.id` entries in a JSONL file.
+
+    P1C fix (RN-005): the Claude Code stream-json format re-emits the
+    same `message.id` multiple times (subagent fan-out, retries). Naive
+    summation double-counts by 2-4×. We dedup by `message.id` and use
+    the LAST observed usage per id (which has the cumulative count).
 
     Returns (input, output, cache_read, cache_write).
     """
-    inp = out = cr = cw = 0
     if not path.exists():
         return 0, 0, 0, 0
+    by_id: dict[str, dict] = {}
+    fallback = []  # for lines without message.id
     for line in path.read_text().splitlines():
         if not line.strip():
             continue
@@ -146,6 +152,13 @@ def tally_jsonl_usage(path: Path) -> tuple[int, int, int, int]:
         u = m.get("usage")
         if not isinstance(u, dict):
             continue
+        mid = m.get("id")
+        if mid:
+            by_id[mid] = u  # last write wins
+        else:
+            fallback.append(u)
+    inp = out = cr = cw = 0
+    for u in list(by_id.values()) + fallback:
         inp += int(u.get("input_tokens") or 0)
         out += int(u.get("output_tokens") or 0)
         cr += int(u.get("cache_read_input_tokens") or 0)

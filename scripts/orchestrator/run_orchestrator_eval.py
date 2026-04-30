@@ -191,8 +191,11 @@ def build_command(
         "--append-system-prompt", system_prompt,
         "--tools", "default",
     ]
-    for d in DISALLOWED_TOOLS:
-        cmd += ["--disallowedTools", d]
+    # P1B fix (RN-005): Claude Code expects a single comma-joined value
+    # for --disallowedTools, not multiple repeated flags. The prior
+    # multi-flag form was silently ignored, allowing Write to fire in
+    # 4/17 tasks of the preliminary XN-018 run.
+    cmd += ["--disallowedTools", ",".join(DISALLOWED_TOOLS)]
     cmd += [
         f"--mcp-config={CONTAINER_MCP_CONFIG_PATH}",
         "--strict-mcp-config",
@@ -286,6 +289,19 @@ def run_one_task(
     )
     blocked_xml = blocked["blocked_xml_filenames"]
     blocked_rst = blocked["blocked_rst_paths"]
+    # P1A fix (RN-005): block ALL test-task GT XMLs, not just current task.
+    # Otherwise the agent can copy a sibling test-task's GT (e.g.
+    # ExampleIsothermalLeakyWell copied thermalLeakyWell_base.xml).
+    test_blocklist_path = REPO_ROOT / "misc" / "memory_artifacts" / "test_blocklist.json"
+    if test_blocklist_path.exists():
+        bl_data = json.loads(test_blocklist_path.read_text())
+        union_xml = bl_data.get("union_xml", []) or []
+        blocked_xml_set = set(blocked_xml) | {b.lower() for b in union_xml}
+        blocked_xml = sorted(blocked_xml_set)
+        # Also block all union RST files
+        union_rst = bl_data.get("union_rst_relpaths", []) or []
+        blocked_rst_set = set(blocked_rst) | set(union_rst)
+        blocked_rst = sorted(blocked_rst_set)
 
     if dry_run:
         filtered = geos_lib_dir
@@ -369,6 +385,10 @@ def run_one_task(
             status = "failed_no_outputs"
         else:
             status = "failed"
+        # P3 fix (RN-005): record started/ended ISO timestamps so
+        # campaign-wall doesn't fall back to fs mtimes.
+        ended_iso = datetime.now().isoformat()
+        started_iso = datetime.fromtimestamp(started).isoformat()
         (result_dir / "status.json").write_text(json.dumps({
             "task": task_name,
             "agent": "orchestrator",
@@ -376,8 +396,10 @@ def run_one_task(
             "status": status,
             "exit_code": proc.returncode,
             "elapsed_seconds": round(elapsed, 1),
+            "started": started_iso,
+            "ended": ended_iso,
             "xml_files": [p.name for p in xmls],
-            "updated": datetime.now().isoformat(),
+            "updated": ended_iso,
         }, indent=2))
         return {
             "task": task_name,
