@@ -25,10 +25,5 @@ GEOS (Geomechanics and EOS Simulator) is an open-source multiphysics simulator. 
 </Problem>
 ```
 
-## Recommended workflow
-1. Find a similar existing example via RAG (`mcp__geos-rag__search_navigator` for topics; `mcp__geos-rag__search_technical` for XML examples; `mcp__geos-rag__search_schema` for authoritative attribute names/types).
-2. `Read` the full example XML from `/geos_lib/inputFiles/...` and adapt it to the task's spec.
-3. Write the adapted XML to `/workspace/inputs/<name>.xml`.
-4. Read each file back to verify structure matches the spec before finishing.
-
-That's it.
+## Additional MCP search tools
+Find a similar existing example via RAG (`mcp__geos-rag__search_navigator` for topics; `mcp__geos-rag__search_technical` for XML examples; `mcp__geos-rag__search_schema` for authoritative attribute names/types).
