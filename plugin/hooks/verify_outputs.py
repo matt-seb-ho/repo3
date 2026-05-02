@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -44,6 +45,31 @@ from pathlib import Path
 DEFAULT_SCHEMA_PATH = Path("/geos_lib/src/coreComponents/schema/schema.xsd")
 MAX_ERRORS_PER_FILE = 8
 MAX_FILES_REPORTED = 4
+
+# Recurring failure mode on OpenRouter-routed open models (gemma, qwen, etc.):
+# the model emits doubled-bracket-with-doubled-name tags like `<<ProblemProblem>`
+# instead of `<Problem>`. This is the single biggest cause of parse_error blocks
+# in run7/run9. Detect it so we can hand the agent a precise sed-style fix
+# instead of letting it rewrite the whole file via Write.
+DOUBLE_BRACKET_OPEN_RE = re.compile(r"<<([A-Za-z][A-Za-z0-9_]*)\1\b")
+DOUBLE_BRACKET_CLOSE_RE = re.compile(r"<</([A-Za-z][A-Za-z0-9_]*)\1>")
+
+
+def _doubled_bracket_hint(path: Path) -> str:
+    """Return a one-line sed-style fix hint if the file shows the `<<TagTag>` pattern."""
+    try:
+        content = path.read_text(errors="ignore")
+    except OSError:
+        return ""
+    if not (DOUBLE_BRACKET_OPEN_RE.search(content) or DOUBLE_BRACKET_CLOSE_RE.search(content)):
+        return ""
+    return (
+        " Detected the `<<TagTag>` doubled-bracket-and-name pattern. "
+        "Fix in place with Edit (do NOT rewrite the whole file via Write): "
+        r"replace `<<\1\1` with `<\1` and `<</\1\1>` with `</\1>` for each "
+        "affected tag name. Example: `<<ProblemProblem>` -> `<Problem>`, "
+        "`<</ProblemProblem>` -> `</Problem>`."
+    )
 
 
 def _envflag(name: str, default: bool = False) -> bool:
@@ -285,9 +311,10 @@ def main() -> None:
                 retries_so_far=retries,
             )
         rel = path.relative_to(inputs_dir) if path.is_relative_to(inputs_dir) else path
+        hint = _doubled_bracket_hint(path)
         _block(
             f"Stop blocked by verify_outputs hook: XML parse error in {rel}: "
-            f"{detail}. Open the file, fix the syntax, then end your turn.",
+            f"{detail}.{hint} Open the file, fix the syntax, then end your turn.",
             inputs_dir=inputs_dir,
             reason_category="parse_error",
             retries_so_far=retries,

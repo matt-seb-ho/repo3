@@ -85,6 +85,8 @@ from .dashboard.server import start_dashboard_server
 from .orchestrator import run_task
 from .process_mgr import stop_active_processes
 from .prompts import load_agents_md
+from .run_lock import RunLockHeld, acquire_run_lock
+from .signal_logger import install_signal_logger
 
 
 class C:
@@ -260,6 +262,13 @@ def main() -> None:
         metavar="DIR",
         help=f"GEOS source tree; filtered copies are mounted at /geos_lib in Docker "
              f"(default: {DEFAULT_GEOS_LIB_DIR})",
+    )
+    parser.add_argument(
+        "--force-unlock",
+        action="store_true",
+        help="Override the per-run PID lock if a stale or zombie lockfile is "
+             "blocking start. Only use when you are certain no other harness "
+             "process is running this --run name.",
     )
     args = parser.parse_args()
 
@@ -439,6 +448,28 @@ def main() -> None:
         print(f"{C.CYAN}--extend-blocklist-with-test:{C.ENDC} "
               f"unioning {len(extra_blocked_xml_basenames)} test-task blocked basenames into every task's blocklist")
 
+    # Lock + signal logger: prevent two harness invocations from sharing a
+    # --run name and record any SIGINT/SIGTERM with sender context. Skip for
+    # dry runs and dashboard-only invocations (neither launches experiments).
+    use_run_guards = not (args.dry_run or args.dashboard_only)
+    lock_cm = None
+    if use_run_guards:
+        signal_log_path = (
+            args.results_root_dir / ".run_signals" / f"{args.run}.jsonl"
+        )
+        install_signal_logger(signal_log_path)
+        lock_cm = acquire_run_lock(
+            args.results_root_dir,
+            args.run,
+            command=sys.argv,
+            force=args.force_unlock,
+        )
+        try:
+            lock_cm.__enter__()
+        except RunLockHeld as exc:
+            print(f"{C.FAIL}Error: {exc}{C.ENDC}")
+            sys.exit(2)
+
     executor = ThreadPoolExecutor(max_workers=args.workers)
     futures = {
         executor.submit(
@@ -518,3 +549,9 @@ def main() -> None:
         except KeyboardInterrupt:
             print("\nStopping dashboard server.")
             dashboard_server.shutdown()
+
+    if lock_cm is not None:
+        try:
+            lock_cm.__exit__(None, None, None)
+        except Exception:
+            pass
