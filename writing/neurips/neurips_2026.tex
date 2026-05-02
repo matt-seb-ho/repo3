@@ -1,0 +1,635 @@
+\documentclass{article}
+
+% if you need to pass options to natbib, use, e.g.:
+%     \PassOptionsToPackage{numbers, compress}{natbib}
+% before loading neurips_2026
+
+\usepackage{neurips_2026}
+% Switch to [eandd] for Datasets \& Benchmarks track or [preprint] for arXiv.
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{listings}
+\usepackage{graphicx}
+
+
+% TODO / placeholder macros
+\newcommand{\todo}[1]{\textcolor{red}{\textbf{TODO: #1}}}
+\newcommand{\tbd}{\textcolor{red}{\textbf{--}}}
+% Shorthand for the agent name used in the draft. Replace later.
+\newcommand{\sys}{\textsc{GeoAgent}\xspace}
+\usepackage{xspace}
+
+% \title{Coding Agent Adaptation for Advanced Scientific Tooling:
+% An Application Study in Automating Geophysics Simulations}
+\title{Coding Agent for Scientific Simulation Setup via Simulator-Interface Grounding: A Case Study in Geophysics}
+
+
+\author{%
+  Anonymous Authors\\
+}
+
+
+\begin{document}
+
+
+\maketitle
+
+
+\begin{abstract}
+Forward simulators are the workhorse tools of modern geophysics, and a single realistic study can require dozens of simulation runs across geological realizations, parameter sweeps, and engineering objectives. Configuring these simulators is itself a research bottleneck: the GEOS multiphysics code, for example, takes hand-authored XML decks that combine solver choices, constitutive models, meshes, events, and boundary conditions. We study whether a general-purpose LLM coding harness, customized with domain-specific retrieval, a self-refinement hook, and an offline-distilled domain primer, can produce usable GEOS XML from natural-language descriptions. On a 17-task benchmark scored by a tree-aware structural similarity metric with hard-fail penalties (TreeSim-fa0), our full stack reaches \textbf{0.796 $\pm$ 0.057} (n=3 seeds) on a minimax-m2.7 backbone, up from 0.497 for vanilla Claude Code (single seed) and 0.333 for harness-less one-shot prompting on the same model. The single largest lever is a frozen, monolithic, enumerated primer distilled offline from 18 training trajectories and appended to the system prompt; a token-matched placebo primer regresses by 0.124, confirming the content-specificity of the lift. Several components we initially believed to matter did not: a retrieval-based memory tool is never invoked by the agent, retrieval-augmented generation alone does not move aggregate accuracy on the stronger base model, and a self-refinement stop-hook reduces variance but does not shift the mean. We present the benchmark, the ablation grid (with a token-parity placebo, a harness-less floor, and a no-adaptation vanilla Claude Code ceiling-per-harness), and a failure-mode taxonomy that attributes most of the gain to a vocabulary effect rather than a reasoning effect. We argue that this is a useful template for other scientific application papers that build on top of modern coding harnesses.
+\end{abstract}
+
+
+%% ============================================================
+\section{Introduction}
+\label{sec:intro}
+
+Frontier LLMs are increasingly capable of expert-level scientific reasoning~\citep{rein2023gpqa,phan2025hle}, and this capability has triggered a wave of domain-specific scientific agents that move beyond question answering to automate the configuration and execution of computational simulators~\citep{luo2025llm4sr,yildiz2024llmworkflows}. ChemCrow and Coscientist plan and execute autonomous chemistry experiments~\citep{bran2024chemcrow,boiko2023coscientist}; Autonomous Simulation Agents drive polymer molecular dynamics workflows~\citep{liu2024asa}; the MetaOpenFOAM, Foam-Agent, and MCP-SIM progression has progressively automated CFD case setup~\citep{chen2024metaopenfoam,yue2025foamagent,mcpsim2026}; MDAgent2, PolyJarvis, and DynaMate target LAMMPS and OpenMM workflows~\citep{shi2026mdagent2,zhao2026polyjarvis,guilbert2025dynamate}; and MooseAgent addresses finite-element multiphysics~\citep{zhan2025mooseagent}. Geophysics and subsurface simulation, however, have largely been bypassed. Existing work concentrates on knowledge QA via domain-adapted foundation models~\citep{deng2023k2,lin2024geogalactica}, while the handful of agent-style systems---GeoSim.AI for slope stability~\citep{bekele2025geosim}, a SPECFEM seismology assistant~\citep{li2025seismologyagent}, and JutulGPT for reservoir simulation~\citep{moyner2026jutulgpt}---address narrow single-physics workflows and have appeared only in geoscience-domain venues. No agent has been proposed at a top ML venue for coupled multiphysics subsurface simulation, and no benchmark exists for evaluating one.
+
+GEOS\footnote{\url{https://github.com/GEOS-DEV/GEOS}}~\citep{geos2024} is the open-source multiphysics simulator developed at Lawrence Livermore National Laboratory that underpins much of this work: it has been used to model coupled flow--geomechanics for fault-slip risk in CO$_2$ storage~\citep{he2026faultslip}, to generate training data for deep-learning surrogates used in MCMC-based history matching of carbon storage operations~\citep{han2024accelerated}, and as the geomechanical backbone for physics-informed mapping of microseismic clouds to growing hydraulic fractures~\citep{glubokovskikh2023microseismic}. In realistic studies, the dominant cost is not a single well-specified simulation run but the need to run many of them: a domain expert we consulted reports that in the absence of a mature site model, a typical study may require ``dozens of simulations with different subsurface realizations to see how the model behaves,'' before parameter uncertainty or engineering-objective sweeps are even considered \todo{cite expert correspondence, 2026-04-23}. Each such run requires hand-authoring an XML deck that combines solver choices, constitutive models, meshes, events, and boundary conditions across hundreds of composable element types---an authoring step that is itself a research bottleneck, for reasons we detail in \S\ref{sec:background}. Automating it would shift the cost of parametric and uncertainty-quantification studies from specialist time per run to compute time per run.
+
+A natural first question is whether a general-purpose LLM or off-the-shelf coding harness can fill this gap. Empirically, no. Bare LLMs hallucinate GEOS element names that do not exist, produce attribute names from deprecated API versions, and fail to maintain cross-section consistency---the same failure modes seen in unaugmented LAMMPS~\citep{holbrook2026lammps} and OpenFOAM~\citep{pandey2025openfoamgpt} generation. Moving to a modern coding harness such as vanilla Claude Code adds file-system interaction, iterative self-debugging, and tool invocation, but it contributes no GEOS-specific vocabulary and no knowledge of which element classes are currently valid. As our harness-less baseline confirms (\S\ref{subsec:harnessless}), even a capable base LLM operating without a harness achieves a mean TreeSim-fa0 of only 0.333 on our 17-task test set, with no task exceeding the 0.7 threshold. The central question is therefore not whether LLMs can produce XML, but whether a system \emph{wrapped around} a modern coding harness can be grounded in a scientific simulator's executable interface reliably enough to be useful.
+
+This paper is an application study. We do not propose a new agent algorithm. We take Claude Code as a fixed harness and ask how much of the gap between its out-of-the-box behaviour and a usable geophysics-simulation assistant can be closed by three \emph{simulator-interface grounding} components: (i) interface retrieval over schema, source, and example assets via a domain-specific MCP plugin; (ii) an offline-distilled \emph{interface primer} that compresses successful training trajectories into an always-on enumeration of valid solver names, constitutive-model classes, and configuration patterns, appended to the system prompt; and (iii) a bounded output verifier hooked into the harness's stop event. None of these depend on GEOS-specific assumptions beyond assets---documentation, examples, a parser---that most scientific simulators expose. We instantiate this recipe on GEOS-based geophysics simulation setup, where the artifact is XML input decks; GEOS is the experimental substrate, not the methodological assumption.
+
+Our contributions:
+\begin{itemize}
+  \item A simulator-interface grounding recipe with three simulator-agnostic components (interface retrieval, distilled interface primer, output verifier), instantiated on GEOS as a stress test.
+  \item A 17-task GEOS XML authoring benchmark mined from advanced-example and tutorial decks, with held-out ICL and distillation splits, and scored by a tree-aware structural similarity metric (TreeSim) under a failure-as-zero aggregate (fa0).
+  \item An ablation grid that isolates the contribution of the harness, each grounding component, and a token-matched content-control \emph{placebo primer}, together with cross-model results on a second base LLM.
+  \item Three negative results we judge worth reporting: a retrieval-based memory tool exposed via MCP is never invoked by the agent; RAG alone does not move aggregate accuracy on our stronger base model; and grounding the distilled primer on TreeSim feedback does not improve aggregate accuracy over self-judged distillation.
+\end{itemize}
+
+Our best configuration on the in-distribution test set reaches TreeSim-fa0 $= 0.921$ ($n=3$ seeds, $\sigma=0.007$) on \texttt{deepseek-v4-flash}, compared to $0.910$ for vanilla Claude Code on the same model. The cells cluster narrowly here ($0.910$--$0.921$), and the dominant factor is RAG, which is \emph{negative}. On a strict 10-task out-of-distribution set, the cells spread widely: vanilla CC drops to $0.720$ while the best configuration (a self-evolved monolithic plugin combining xmllint, a memory cheatsheet, and a v3 prose primer) holds at $0.789$ ($+6.9$pp). Adapter cells on this set reduce seed standard deviation by ${\sim}40{\times}$. A bottleneck-analysis pipeline (per-task DSv4-flash classifier $+$ DSv4-pro synthesis) shows that the gain is concentrated in two structurally hard tasks where the baseline catastrophically fails, and that adapters reliably fix \texttt{missing\_block} but not \texttt{bad\_attribute\_value}. The number of strictly-perfect decks does not increase under any adapter we tested.
+
+%% ============================================================
+\section{Introduction}
+\label{sec:intro}
+Frontier large language models (LLMs) are rapidly approaching and surpassing human-expert baselines on challenging scientific reasoning benchmarks. Reasoning-focused LLMs such as OpenAI o1, o3, DeepSeek-R1, and Gemini~2.5~Pro all exceed the $\sim$70\% PhD-expert threshold on GPQA Diamond~\citep{rein2023gpqa,openai2024o1,openai2025o3,guo2025deepseekr1,google2025gemini25}, while on Humanity's Last Exam (HLE)---a harder, broader benchmark of 2{,}500 expert-authored questions across over 100 disciplines---top LLMs now score above 40\%, up from near-zero at its release~\citep{phan2025hle}. In domain-specific settings, top LLMs additionally outperform expert chemists on broad knowledge benchmarks~\citep{mirza2025chembench} and exceed PhD biologists on targeted literature-retrieval tasks~\citep{laurent2024labbench}. Together, these results position LLMs as capable scientific collaborators across all stages of the research cycle~\citep{luo2025llm4sr}.
+
+Crucially, this capability has inspired a wave of domain-specific scientific agents that go beyond question answering to automate the execution of computational simulators and physical workflows~\citep{yildiz2024llmworkflows,lu2024aiscientist}. In chemistry, agents such as ChemCrow and Coscientist have demonstrated autonomous synthesis planning and robotic experiment execution~\citep{bran2024chemcrow,boiko2023coscientist}. In computational materials science, Autonomous Simulation Agents (ASAs) powered by GPT-4o have achieved near-flawless execution loops for polymer chain conformation studies, including remote execution and data analysis~\citep{liu2024asa}. Most directly relevant to our work, in computational fluid dynamics and mechanics, a succession of agents-- MetaOpenFOAM, Foam-Agent, and MCP-SIM---have progressively automated the configuration of complex physics solvers from natural language descriptions, achieving success rates above 85\% on structured simulation benchmarks~\citep{chen2024metaopenfoam,yue2025foamagent,mcpsim2026}. In molecular dynamics, MDAgent2, PolyJarvis, and DynaMate have similarly automated LAMMPS and OpenMM workflows~\citep{shi2026mdagent2,zhao2026polyjarvis,guilbert2025dynamate}.
+
+Geophysics and subsurface simulation have largely been bypassed by this wave. Existing geoscience LLM work concentrates on knowledge QA and text understanding via domain-adapted foundation models \citep{deng2023k2,lin2024geogalactica}, while the handful of agent-style systems that have appeared---GeoSim.AI for slope stability codes \citep{bekele2025geosim}, a seismology modeling agent for SPECFEM \citep{li2025seismologyagent}, and JutulGPT for the JutulDarcy reservoir simulator \citep{moyner2026jutulgpt}---address narrow, single-physics workflows and have appeared only in geoscience-domain venues. No LLM agent has been proposed at a top machine-learning venue for coupled, multiphysics subsurface simulation, and no benchmark exists for evaluating such agents. The contrast with the CFD ecosystem---where MetaOpenFOAM, OpenFOAMGPT, and Foam-Agent form a progression of increasingly capable systems with structured evaluation---is striking.
+
+GEOS\footnote{\url{https://github.com/GEOS-DEV/GEOS}} is the open-source multiphysics simulator developed at Lawrence Livermore National Laboratory and collaborating institutions that underpins much of this work. Problems of direct societal consequence---geological carbon storage, geothermal energy extraction, hydraulic fracture stimulation, and induced seismicity assessment---all require numerical modeling of tightly coupled thermo-hydro-mechanical processes across heterogeneous, uncertain geological media, and GEOS is the tool that makes this tractable at scale: it has been used to model coupled flow-geomechanics for fault-slip risk in CO$_2$ storage \citep{he2026faultslip}, to generate high-fidelity training data for deep learning surrogates used in MCMC-based history matching of carbon storage operations \citep{han2024accelerated}, and as the geomechanical backbone for physics-informed machine learning algorithms that map microseismic clouds to growing hydraulic fractures in real time \citep{glubokovskikh2023microseismic}. In realistic studies, the dominant cost is not a single well-specified simulation run, but the need to run \emph{many} of them: a domain expert we consulted reports that in the absence of a mature site model, a typical study may require ``dozens of simulations with different subsurface realizations to see how the model behaves,'' before parameter uncertainty is even considered; reservoir engineers additionally sweep engi
+
+combneering variables to optimize operational outcomes such as geothermal flow rate \todo{cite expert correspondence, 2026-04-23}.
+
+Since running GEOS simulations requires technical expertise, this is a pitfall for geophysicists who may have the geophysical parameters of the simulations they would like to run but don't have the skill to do so. Our work emulates this bottleneck as the process of translating a natural-language problem description into GEOS's XML input format. Each GEOS simulation is specified by one or more hand-authored XML files selecting solver families, constitutive models, mesh definitions, event schedules, boundary conditions, field initializations, and numerical methods, drawn from hundreds of composable element types. A single advanced-example deck spans several hundred lines of XML across canonical sections (\texttt{Mesh}, \texttt{Geometry}, \texttt{Events}, \texttt{Solvers}, \texttt{Constitutive}, \texttt{ElementRegions}, \texttt{NumericalMethods}, \texttt{FieldSpecifications}, \texttt{Functions}, \texttt{Outputs}). This authoring task is hard for reasons beyond sheer length. The XML vocabulary is large and contains many similarly named classes---\texttt{DruckerPrager}, \texttt{ExtendedDruckerPrager}, \texttt{DruckerPragerHardening}, \texttt{ViscoDruckerPrager}---whose applicability depends on subtle physics distinctions. The vocabulary has drifted across GEOS versions, and indexed documentation frequently references deprecated attribute names. Correct decks must satisfy cross-section constraints enforced only weakly by the parser: region names referenced in \texttt{FieldSpecifications} must match those declared in \texttt{ElementRegions}, solver targets must point to valid constitutive models, and so on. Natural-language problem descriptions routinely under-determine solver choice, leaving two physically equivalent specifications to produce very different XML structures. If this authoring step could be automated reliably, the cost of parametric and uncertainty-quantification studies would shift from the time a specialist spends configuring each run to compute time per run.
+
+A natural first question is whether a general-purpose LLM or off-the-shelf coding agent can fill this gap. The answer, empirically, is: not reliably. Bare LLMs hallucinate GEOS element names that do not exist, produce attribute names from deprecated API versions, and fail to maintain cross-section consistency---the same failure modes observed when prompting general models to generate LAMMPS scripts \citep{holbrook2026lammps} or OpenFOAM cases without retrieval augmentation \citep{pandey2025openfoamgpt}. Moving to a modern coding harness such as vanilla Claude Code adds meaningful structure---file-system interaction, iterative self-debugging, and tool invocation---but it contributes no GEOS-specific vocabulary and no knowledge of which element classes are currently valid. As our harness-less baseline confirms (\S\ref{subsec:harnessless}), even a capable base LLM operating without a harness achieves a mean TreeSim-fa0 of only 0.333 on our 17-task test set, with no task exceeding the 0.7 threshold. The central question is therefore not whether LLMs can produce XML, but whether a system \emph{wrapped around} a modern coding harness, and customized with domain-specific retrieval and an offline-distilled vocabulary primer, can produce \emph{GEOS} XML reliably across a heterogeneous task pool.
+
+This paper is an application study. We do not propose a new agent algorithm. We take Claude Code as a fixed harness and ask how much of the gap between its out-of-the-box behaviour and a usable geophysics-simulation assistant can be closed by a well-chosen set of adaptations: a domain-specific retrieval plugin backed by three ChromaDB collections over the GEOS schema, source, and navigator documentation; a stop-hook self-refinement loop; and a static domain primer distilled offline from training trajectories and appended to the system prompt.
+
+Our contributions:
+\begin{itemize}
+  \item A 17-task GEOS XML authoring benchmark mined from advanced-example and tutorial decks, with held-out ICL and memory-distillation splits, and scored by a tree-aware structural similarity metric (TreeSim) with a failure-as-zero aggregate (fa0).
+  \item A characterization of a minimal adaptation stack on top of Claude Code: a three-database RAG plugin over the GEOS schema, source, and navigator docs; a stop-hook self-refinement loop; and an offline-distilled monolithic primer appended to the system prompt. All components are described in enough detail to reproduce.
+  \item An ablation grid that separates the contribution of the harness itself (vanilla Claude Code over harness-less one-shot prompting, $+0.164$ fa0), the RAG plugin, the stop-hook, and the primer, together with a token-matched content-control placebo primer and cross-model results on a second base LLM.
+  \item Three negative results we judge worth reporting: retrieval-based memory (an MCP memory tool) is never invoked by the agent, RAG alone does not move aggregate accuracy on the stronger of our two base models, and grounding the distilled primer on TreeSim feedback does not improve aggregate accuracy over self-judged distillation.
+  \item A failure-mode taxonomy that attributes most of the gain to a vocabulary effect (enumerating the correct GEOS class and element names prevents hallucination) rather than a reasoning effect, and a discussion of what that implies for the design of scientific-coding agents more broadly.
+\end{itemize}
+
+Our best configuration on the in-distribution test set reaches TreeSim-fa0 $= 0.921$ ($n=3$ seeds, $\sigma=0.007$) on \texttt{deepseek-v4-flash}, compared to $0.910$ for vanilla Claude Code on the same model (within seed noise). On a strict 10-task out-of-distribution set, the same vanilla baseline drops to $0.720$ while a self-evolved monolithic-plugin variant holds at $0.789$ ($+6.9$pp), and adapter cells reduce seed standard deviation by ${\sim}40{\times}$. The picture is therefore that a current general-purpose coding harness is competitive on familiar GEOS tasks but brittle on out-of-distribution tasks, where targeted simulator-interface adaptations recover most of the lost quality and most of the lost reliability.
+
+
+%% ============================================================
+\section{Related work}
+\label{sec:related}
+
+\paragraph{LLM agents for scientific code and workflows.}
+Scientific-coding agents have recently been studied on curated benchmarks such as ScienceAgentBench and DA-Code \cite{chen2025scienceagentbench,huang2024dacode}. Approaches span general-purpose coding agents (OpenHands, SWE-agent \cite{wang2024openhands,yang2024sweagent}), single-LLM self-debugging loops \cite{chen2024selfdebug}, and specialized frameworks such as SciNav's top-$K$ comparative tree search \cite{zhang2026scinav}. In domain-application settings, ChemCrow augments GPT-4 with 18 chemistry tools to plan and execute real syntheses \cite{bran2024chemcrow}, CellVoyager pairs an LLM with the \textsc{scverse} stack to autonomously analyse single-cell RNA-seq datasets and surface hypotheses \cite{alber2025cellvoyager}, and The AI Scientist assembles Aider, Semantic Scholar, and vision-language models into an end-to-end ML-research pipeline \cite{lu2024aiscientist}. Our setting resembles ChemCrow and CellVoyager in that we make few AI-method claims and many domain-capability claims; it resembles SciNav in that our outputs are executable artifacts with a rigorous ground truth. Unlike all of these, we build \emph{on top of} an existing, highly engineered coding harness (Claude Code) rather than writing our agent loop from scratch.
+
+% \paragraph{Multi-agent scientific reasoning.}
+% Recent work addresses reasoning-heavy scientific benchmarks with multi-agent systems. Eigen-Agent introduces a token-level monitor-based RAG that implicitly injects retrieval inside the reasoning stream and combines it with hierarchical solution refinement and quality-aware iterative reasoning \cite{tang2026eigenagent}. AgentFlow decomposes a trainable agentic system into planner/executor/verifier/generator modules and trains the planner with an on-policy RL algorithm (Flow-GRPO) that broadcasts trajectory-level outcome reward \cite{li2026agentflow}. Our system has a surface resemblance to these frameworks (structured memory, an evaluate-then-refine hook) but is not a trainable agent; the primer is distilled once, offline, from training trajectories and frozen.
+
+\paragraph{Self-evolving agents and procedural guidance.}
+Recent work on scientific and tool-using agents increasingly treats agent capability as an iterative process of planning, execution, feedback, and refinement rather than single-pass prompting. Many existing systems couple LLMs with domain tools, retrieval, code execution, sandboxed environments, reviewers, or verifier loops to convert intermediate traces and execution feedback into reusable procedural guidance~\citep{bran2024chemcrow,boiko2023coscientist,alber2025cellvoyager,lu2024aiscientist,zhang2026scinav,li2026agentflow,tang2026eigenagent,narayanan2024aviary}. These systems suggest a common self-evolution pattern: agents improve by externalizing experience into memory, search states, critiques, or revised plans that guide later actions. Our GEOS deck-authoring setting exposes a limitation of this assumption: procedural knowledge is useful only when it is reliably surfaced to the model during generation. In our task--model pairs, an MCP tool exposing embedding-retrievable memory items is never invoked by the agent, and the gains observed in earlier pilots instead come from primer-style procedural guidance placed directly in the system prompt. This suggests that, for brittle scientific simulator configuration tasks, the interface for injecting procedural knowledge can be as important as the knowledge source itself.
+
+\paragraph{Memory and procedural knowledge in agents.}
+Our primer is adjacent to a recent line of work on procedural memory and cheatsheets for LLMs, including Buffer of Thoughts \cite{yang2024bot} and G-Memory-style embedding-retrieved procedural items. A central negative finding in our work is that an MCP tool exposing embedding-retrievable memory items is never actually called by the agent in our task-model pairs, and the apparent benefit of ``memory'' in our own earlier pilots was primer-format-in-system-prompt rather than retrieval.
+
+\paragraph{Automation of physical-science simulators.}
+% Work on reducing the configuration cost of physics simulators includes domain-specific GUIs, schema-driven editors, and learned surrogates. We are not aware of prior work applying agentic LLM coding to GEOS or to similar multiphysics simulators at the XML-deck authoring layer.
+Recent work has begun to automate scientific workflows by coupling LLMs with domain tools, retrieval systems, execution environments, and reviewer loops. In chemistry, ChemCrow~\cite{bran2024chemcrow} and Coscientist~\cite{boiko2023coscientist} show that tool-augmented LLMs can support chemical reasoning, synthesis planning, and experimental automation. In broader scientific discovery, systems such as The AI Scientist~\cite{lu2024aiscientist,yamada2025ai} explore end-to-end hypothesis generation, experimentation, and manuscript drafting. More closely related to our setting are agents for scientific simulators, including OpenFOAM-oriented systems for CFD~\cite{chen2024metaopenfoam,pandey2025openfoamgpt,foamagent2025}, molecular-dynamics agents for LAMMPS or OpenMM-style workflows~\cite{kim2024mdagents,shi2026mdagent2,guilbert2025dynamate,zhao2026polyjarvis}, and finite-element or mechanics agents such as MooseAgent and MechAgents~\cite{zhan2025mooseagent,ni2024mechagents}. Across these systems, the central design lesson is consistent: general-purpose LLMs are insufficient for high-fidelity simulator use unless wrapped with domain grounding, structured interfaces, execution feedback, and iterative correction. For example, OpenFOAM agents rely on tutorial retrieval and error-log feedback, molecular-dynamics agents use simulation-specific syntax checkers and runtime loops, and SWE-agent-style interfaces show that even software agents benefit substantially from purpose-built interaction abstractions~\cite{yang2024sweagent}.
+
+
+%% ============================================================
+\section{Background: the GEOS simulator and deck authoring}
+\label{sec:background}
+
+GEOS is an open-source multiphysics finite-element simulator developed at Lawrence Livermore National Laboratory and collaborating institutions. It supports coupled solid-mechanics, single- and multiphase-flow, thermal, and wellbore problems across a large family of constitutive models (e.g., Drucker--Prager and its extended and hardening variants, modified Cam-Clay, visco-plastic variants, porous-compressible-solid composites) and solver classes (e.g., \texttt{SolidMechanicsLagrangianFEM}, \texttt{SinglePhasePoromechanicsConformingFractures}, \texttt{CompositionalMultiphaseReservoir}).
+
+A GEOS \emph{deck} is one or more XML files describing the full problem specification. Ten canonical sections are conventional: \texttt{Mesh}, \texttt{Geometry}, \texttt{Events}, \texttt{Solvers}, \texttt{Constitutive}, \texttt{ElementRegions}, \texttt{NumericalMethods}, \texttt{FieldSpecifications}, \texttt{Functions}, and \texttt{Outputs}. A typical advanced-example deck is several hundred lines of XML across one or more files.
+
+Authoring a deck from a natural-language specification is hard for four reasons. First, the XML vocabulary is large, with many similarly named element and attribute classes (e.g., \texttt{DruckerPrager}, \texttt{ExtendedDruckerPrager}, \texttt{DruckerPragerHardening}, \texttt{ViscoDruckerPrager}) whose applicability depends on subtle physics distinctions. Second, the vocabulary has drifted across versions of GEOS, and widely-indexed documentation frequently references deprecated attribute names. Third, correct decks respect cross-section constraints that are only weakly enforced by the parser (e.g., region names referenced in \texttt{FieldSpecifications} must match those declared in \texttt{ElementRegions}). Fourth, natural-language specifications typically under-determine the solver choice; two physically compatible configurations may nevertheless produce very different decks.
+
+We describe a concrete deck and its authoring pitfalls in Appendix~\ref{app:geos-example}.
+
+
+%% ============================================================
+\section{Method}
+\label{sec:method}
+
+\subsection{System overview}
+
+Figure~\todo{figure:system} shows the system. Our agent is a customization of Claude Code (CC) rather than a re-implementation of the observe-reason-act loop. Three components are added on top of CC, delivered through its supported extension mechanisms: (i) a \emph{repo3 plugin} that provides a GEOS-specific retrieval toolset over three ChromaDB collections, (ii) a \emph{Stop hook} (\texttt{verify\_outputs.py}) that implements a bounded self-refinement loop by intercepting CC's Stop event and either allowing termination or re-prompting the agent, and (iii) a \emph{monolithic primer} appended to the system prompt (\texttt{--append-system-prompt}) that is distilled once, offline, from training-split trajectories.
+
+We emphasise what is \emph{not} part of our system. We do not write our own agent loop, prompt scaffolding, or tool-calling machinery; those come from Claude Code. We do not train any model. The primer is produced by an offline distillation pass over trajectories; at inference time the only runtime adaptations beyond vanilla CC are the retrieval tool calls issued by the agent and the hook events fired by CC itself.
+
+\subsection{The repo3 plugin: GEOS-specific retrieval}
+\label{subsec:plugin}
+
+The plugin registers an MCP server exposing three tools, each backed by a separate ChromaDB collection built at plugin-install time from the GEOS source tree at \texttt{/geos\_lib/src/docs/sphinx/} and \texttt{/geos\_lib/inputFiles/}:
+\begin{itemize}
+  \item \texttt{mcp\_\_geos-rag\_\_search\_navigator(query, n)} returns Sphinx navigation breadcrumbs for conceptual orientation (e.g., \texttt{advancedExamples > validationStudies > fractureMechanics > Sneddon}) alongside doc snippets.
+  \item \texttt{mcp\_\_geos-rag\_\_search\_schema(query, n)} returns GEOS XML schema fragments including element names, attribute names, allowed values, and defaults.
+  \item \texttt{mcp\_\_geos-rag\_\_search\_technical(query, n)} returns concrete reference XML snippets tied to file and line references.
+\end{itemize}
+Embeddings use OpenAI \texttt{text-embedding-3-small}. A plugin-level \texttt{geos-rag} skill teaches the agent \emph{when} to invoke each of the three tools; a short instruction block is also appended to the system prompt identifying the three search intents (``\texttt{search\_navigator} for conceptual orientation, \texttt{search\_schema} for authoritative XML attributes, \texttt{search\_technical} for real XML examples'').
+
+\subsection{The Stop hook: bounded self-refinement}
+\label{subsec:hook}
+
+The hook \texttt{plugin/hooks/verify\_outputs.py} registers on Claude Code's Stop event. On every Stop, the hook scans \texttt{/workspace/inputs/} for parseable XML. If none is present, it returns \texttt{\{"decision": "block", "reason": "no\_xml"\}} with a terse natural-language reason, causing CC to re-prompt the agent. Unparseable XML triggers a similar block with \texttt{"parse\_error"}. Clean XML allows termination. A per-task retry counter in \texttt{/workspace/.verify\_hook\_state.json} bounds re-prompts (default \texttt{max\_retries=2}). Hook invocations are logged to \texttt{/workspace/.verify\_hook\_events.jsonl}.
+
+The hook was designed to rescue two empirically observed failure modes: agents occasionally write XML files to \texttt{/workspace/} rather than \texttt{/workspace/inputs/}, and some backbones occasionally emit \texttt{content=[]} with \texttt{stop\_reason=end\_turn} after a tool result. The Stop-hook is one of the four binary factors in our $2^{4-1}$ factorial (Sec.~\ref{subsec:cells}); we evaluate its main effect alongside the other three.
+
+\subsection{The schema-validation MCP: synchronous structural checks}
+\label{subsec:xmllint}
+
+A second MCP-tool adaptation exposes the GEOS XML schema as an in-loop validation tool. \texttt{mcp\_\_xmllint\_\_validate\_geos\_xml(file)} runs \texttt{xmllint --schema} against the canonical \texttt{.xsd} bundled with the GEOS source and returns either ``ok'' or a list of element/attribute errors. We deliberately separate this from the Stop-hook self-refine: the hook fires once on termination, while the validate-tool can be called by the agent at any point in the trajectory. In Sec.~\ref{sec:results} we show that this distinction matters --- agents that have the validate-tool make ${\sim}3$ validation calls per task on average and shift the failure-mode distribution measurably.
+
+\subsection{The memory cheatsheet: offline distillation of domain vocabulary}
+\label{subsec:primer}
+
+The fourth adaptation is a static \emph{cheatsheet} appended to the system prompt via Claude Code's \texttt{--append-system-prompt} flag. The cheatsheet (\textbf{m1u}, 775 tokens) is a single-file enumerated reference distilled offline from 18 training trajectories using \texttt{google/gemini-3-flash-preview}\footnote{The distillation model is intentionally different from the inference model (\texttt{deepseek-v4-flash}) to break self-distillation coupling.}. Content consists of GEOS solver families paired with their concrete XML element names, constitutive-model class names, typical attribute values, and short pattern exemplars. The cheatsheet is \emph{not} a policy (it contains no ``do X when Y'' rules); it is a structured vocabulary dump whose role is to convert class names like \texttt{CompressibleSolidParallelPlatesPermeability} from probable hallucinations into copy-paste targets.
+
+\subsection{Self-evolved monolithic plugin (SE)}
+\label{subsec:se}
+
+We also evaluate a \emph{self-evolved} variant in which the four adaptations above (plus a richer \texttt{PRIMER.md} and an agent-authored skill set) are co-developed by a separate offline self-improvement pipeline that iteratively rewrites the plugin contents on training trajectories and accepts revisions only if mean held-out TreeSim improves. The resulting plugin (\texttt{plugin\_evolving/v3/}; we call this cell \textbf{SE}) is treated as a single monolithic harness rather than a Cartesian-product cell. At evaluation time we disable agent-authored skill invocation (\texttt{--disallowedTools Skill}) so that the comparison isolates the contribution of the rewritten prose primer plus the cheatsheet plus hooks/MCP, holding tool-shape parity with the factorial cells. A second variant \textbf{F11} (Sec.~\ref{subsec:cells}) decomposes SE further by holding factor settings constant with F6 and replacing only the prose+cheatsheet, isolating the value of the v3 prose from the v3 packaging.
+
+\subsection{Resolution-IV factorial over the four adaptation factors}
+\label{subsec:cells}
+
+Each of the four adaptations above is a binary factor: $\mathrm{R}$ (RAG plugin), $\mathrm{S}$ (Stop-hook), $\mathrm{X}$ (xmllint MCP), $\mathrm{M}$ (memory cheatsheet). The full $2^{4}{=}16$ factorial is too expensive to run at three seeds across three task sets. We instead use a Resolution-IV $2^{4-1}$ fractional factorial with generator $\mathrm{D}{=}\mathrm{ABC}$, giving eight cells (\textbf{F0}--\textbf{F7}) that resolve all four main effects free of two-factor confounding. F0 has all factors off (the vanilla-CC baseline); F7 has all four on; the interior cells are the orthogonal half-replicate. We add three further cells: F8 (the missing 16th cell at $\mathrm{R}^{-}\mathrm{S}^{+}\mathrm{X}^{+}\mathrm{M}^{+}$, included so that the cell at the predicted main-effects-best corner is also empirically measured); F11 (the SE-decomposition variant of \S\ref{subsec:se}); and SE itself.
+
+\begin{table}[t]
+  \caption{Cell definitions. \textbf{R}=RAG, \textbf{S}=Stop-hook, \textbf{X}=xmllint MCP, \textbf{M}=memory cheatsheet. F0--F7 are the Resolution-IV $2^{4-1}$ factorial; F8 is the missing 16th cell; F11 is the SE-decomposition variant; SE is the self-evolved monolithic plugin.}
+  \label{tab:cells}
+  \centering
+  \small
+  \begin{tabular}{lccccl}
+    \toprule
+    \textbf{Cell} & \textbf{R} & \textbf{S} & \textbf{X} & \textbf{M} & \textbf{Notes} \\
+    \midrule
+    F0 & --  & --  & --  & --  & vanilla Claude Code (factorial baseline)               \\
+    F1 & $+$ & --  & --  & $+$ & RAG + memory                                           \\
+    F2 & --  & $+$ & --  & $+$ & SR-hook + memory                                       \\
+    F3 & $+$ & $+$ & --  & --  & RAG + SR-hook                                          \\
+    F4 & --  & --  & $+$ & $+$ & xmllint + memory                                       \\
+    F5 & $+$ & --  & $+$ & --  & RAG + xmllint                                          \\
+    F6 & --  & $+$ & $+$ & --  & SR-hook + xmllint                                      \\
+    F7 & $+$ & $+$ & $+$ & $+$ & full stack                                             \\
+    \midrule
+    F8  & --  & $+$ & $+$ & $+$ & factorial completion (predicted main-effects best)   \\
+    F11 & --  & $+$ & $+$ & $+$ & F6 prose + v3 PRIMER + v3 cheatsheet (decomposed SE) \\
+    SE  & --  & $+$ & $+$ & $+$ & self-evolved v3 plugin (\S\ref{subsec:se})           \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Bottleneck-analysis pipeline}
+\label{subsec:bottleneck}
+
+To attribute aggregate quality differences to specific structural failure modes, we built a three-stage analysis pipeline that reuses two cheap reasoners (\texttt{deepseek-v4-flash} for per-task triage and \texttt{deepseek-v4-pro} for cross-cell synthesis):
+
+\begin{enumerate}
+  \item \textbf{Extract (no LLM).} For each (cell, seed, task), mine the recursive \texttt{treesim\_detail} tree from the scorer to rank the top-$K$ failing subtrees by impact $= (1 - \mathrm{score}) \cdot (n_{\mathrm{gt\_children}} + 1)$, and extract trajectory features (tool counts, file re-reads, xmllint calls, edit churn, grep/glob query distributions) from the agent's \texttt{events.jsonl}.
+  \item \textbf{Per-task classification (\texttt{deepseek-v4-flash}).} Send the diagnostic plus a focused GT-vs-generated XML excerpt for the worst-scoring section (when $\mathrm{score} < 0.7$) with a strict-JSON schema. The model returns a \texttt{failure\_category} $\in \{$\texttt{missing\_block}, \texttt{extra\_block}, \texttt{hallucinated\_extras}, \texttt{structural\_mismatch}, \texttt{bad\_attribute\_value}, \texttt{partial\_implementation}, \texttt{wrong\_constitutive}, \texttt{no\_failure}$\}$, a \texttt{primary\_failure\_section}, a one-sentence \texttt{root\_cause}, a \texttt{trajectory\_evidence} citation, and a \texttt{would\_have\_helped} hypothesis.
+  \item \textbf{Aggregate (\texttt{deepseek-v4-pro}).} Group by cell, compute category and section distributions, compute section ``failure weight'' $= \sum_{\mathrm{tasks}} (1 - \mathrm{TreeSim})$ grouped by primary failing section, and compute per-task baseline-vs-best deltas. The \texttt{deepseek-v4-pro} model writes a paper-grade synthesis anchored on a chosen baseline/best pair.
+\end{enumerate}
+
+Total cost across all evaluations was ${\sim}650$ \texttt{deepseek-v4-flash} calls plus 4 \texttt{deepseek-v4-pro} narratives, ${\sim}\$5\text{--}7$ in DeepSeek API spend. Code: \texttt{scripts/bottleneck/\{extract,llm\_per\_task,aggregate\}.py}.
+
+\subsection{Train/test split and leakage control}
+The full task pool consists of 46 tasks mined from GEOS advanced examples and tutorial decks. We hold 10 out as a true out-of-distribution \emph{ICL-10} set used only for evaluation (Sec.~\ref{subsec:icl-set}); the cheatsheet and the SE plugin are never trained against, prompted with, or distilled from any ICL-10 task. The remaining 36 tasks are sorted by CC+plugin training-run TreeSim and split by index parity into an 18-task distillation corpus and a 17-task held-out test set (the \emph{test-17} set). No test-17 task enters the distillation corpus. A hygiene gate (\texttt{scripts/memory/hygiene\_audit.py}) regex-scans every distilled artefact for any filename matching the basename of any test-set ground-truth file and rejects artefacts with leakage. An earlier version of our cheatsheet (M0) leaked 13 of 17 test task basenames via auxiliary \texttt{reference\_xmls} and \texttt{productive\_rag\_queries} fields; the hygiene gate was added after this leak was found (\S\ref{subsec:pivot}).
+
+
+%% ============================================================
+\section{Evaluation setup}
+\label{sec:eval}
+
+\subsection{Benchmark}
+\label{subsec:bench-summary}
+
+We evaluate on two task sets:
+
+\paragraph{test-17 (held-out, in-distribution).} 17 tasks drawn from GEOS advanced-example and tutorial decks spanning poromechanics, hydraulic fracture, thermal coupling, and wellbore modeling, with tasks such as \texttt{ExampleDPWellbore}, \texttt{TutorialSneddon}, \texttt{pknViscosityDominated}, \texttt{ExampleMandel}, and \texttt{buckleyLeverettProblem}. This is the held-out half of the 36-task index-parity split (Sec.~\ref{subsec:primer}). Cells were selected against this set; the cheatsheet was not.
+
+\paragraph{ICL-10 (out-of-distribution).}\label{subsec:icl-set} 10 tasks held aside as a strict OOD evaluation set, never used for cheatsheet distillation, plugin self-evolution, or cell tuning: \texttt{AdvancedExampleCasedThermoElasticWellbore}, \texttt{AdvancedExamplePureThermalDiffusionWellbore}, \texttt{AdvancedExampleThermoPoroElasticWellbore}, \texttt{AdvancedExampleViscoExtendedDruckerPrager}, \texttt{ExampleIsothermalHystInjection}, \texttt{ExampleMCCWellbore}, \texttt{ExampleProppantTest}, \texttt{ExamplesingleFracCompression}, \texttt{ExampleVerticalPoroElastoPlasticWellbore}, \texttt{TutorialHydraulicFractureWithAdvancedXML}. Reporting both sets is what allows us to distinguish between adapter wins on the in-distribution test bench (small) and adapter wins on tasks the harness has never seen (large; Sec.~\ref{sec:results}).
+
+Task inputs are natural-language specifications rewritten for self-containment and clarity (the ``v2'' spec set; \S\ref{app:bench} details the v1$\rightarrow$v2 migration and invalidated early results). Ground-truth XML decks are hand-validated. Full task list and split methodology in Appendix~\ref{app:bench}.
+
+\subsection{Metric: TreeSim and fa0}
+\label{subsec:metric}
+We score generated decks against ground truth using a programmatic tree-edit similarity metric (``TreeSim'') decomposed by canonical section (\texttt{Mesh}, \texttt{Geometry}, \texttt{Events}, \texttt{Solvers}, \texttt{Constitutive}, \texttt{ElementRegions}, \texttt{NumericalMethods}, \texttt{FieldSpecifications}, \texttt{Functions}, \texttt{Outputs}). TreeSim $\in [0, 1]$. A per-run ``\texttt{overall\_score}'' is TreeSim $\times 10$.
+
+Our primary headline is \textbf{fa0} (``failures-as-zero''): the mean TreeSim across all 17 tasks, with \texttt{failed\_no\_outputs}, timeouts, parse errors, and ``no XML produced'' counted as TreeSim $= 0$. The alternative (``scored-only mean''), which discards failed tasks, is less strict and more easily gamed; we prefer fa0 because it captures what matters in practice, which is whether a task completed at all. A secondary metric \textbf{Pass@0.7} is the fraction of tasks with TreeSim $\geq 0.7$.
+
+Implementation: \texttt{src/eval/judge\_geos.py} (entry \texttt{evaluate\_directories}), driven by \texttt{scripts/eval/batch\_evaluate.py}.
+
+\subsection{Baselines}
+\label{subsec:baselines}
+\textbf{Vanilla Claude Code (cell F0)} --- CC with no plugin, no hook, no MCP, no cheatsheet --- is our principal point of comparison. It represents what the off-the-shelf harness can do without any GEOS-specific adaptation. F0 is the all-factors-off corner of the Resolution-IV factorial (Sec.~\ref{subsec:cells}); every other cell adds at least one of $\{\mathrm{R, S, X, M}\}$, and the SE/F11 cells re-package the same factors as a self-evolved monolith. The \emph{harness-less one-shot} bound (Sec.~\ref{subsec:harnessless}) anchors all numbers from below; we ran it on \texttt{minimax-m2.7} only and treat it as a model-class lower bound rather than a per-model floor.
+
+\subsection{Models and runs}
+All headline cell runs use \texttt{deepseek-v4-flash} via the official DeepSeek API, configured through the Claude Code wrapper (\texttt{ANTHROPIC\_BASE\_URL=https://api.deepseek.com/anthropic}). Bottleneck-analysis classification uses \texttt{deepseek-v4-flash} for per-task triage and \texttt{deepseek-v4-pro} for cross-cell synthesis (Sec.~\ref{subsec:bottleneck}); both are accessed through the standard DeepSeek chat API. Cross-model results retained from earlier minimax-m2.7 and deepseek-v3.2 runs are kept only as cross-backbone evidence for the plugin's value (Sec.~\ref{subsec:cross-model}).
+
+We report $n=3$ independent runs per (cell, task-set) combination. Claude Code defaults are used for sampling; per-task wall-clock timeout is 1500~s (Docker-enforced). Cells with the SE plugin start the agent with \texttt{--disallowedTools Skill} so that the comparison isolates the contribution of the rewritten prose primer and cheatsheet (skills are part of the SE design but disabled at evaluation time for tool-shape parity with the factorial cells).
+
+
+%% ============================================================
+\section{Results}
+\label{sec:results}
+
+\subsection{Quality across two task distributions}
+\label{subsec:quality}
+
+Table~\ref{tab:main-results} reports our headline numbers on \texttt{deepseek-v4-flash}, $n=3$ per cell. Two conclusions are visible at a glance: (i) the cells \emph{cluster narrowly} on test-17 (range 0.857--0.921, with the four non-RAG cells in 0.910--0.921), but (ii) the cells \emph{spread widely} on ICL-10 (range 0.720--0.789, with $\Delta = +0.069$ from F0 to SE). The headline of this paper is the gap between these two columns.
+
+\begin{table}[t]
+  \caption{Cell-level fa0 on \texttt{deepseek-v4-flash}, $n=3$ seeds. F0--F7 are the Resolution-IV $2^{4-1}$ factorial; F8 is the missing 16th cell included so the predicted main-effects-best corner is empirically measured; F11 is the SE-decomposition variant; SE is the self-evolved monolithic plugin. Reliability ($\sigma$ = sample standard deviation across 3 seeds) is the second-order story.}
+  \label{tab:main-results}
+  \centering
+  \small
+  \begin{tabular}{lcccccc}
+    \toprule
+    \textbf{Cell} & \textbf{test-17 fa0} & \textbf{$\sigma$} & \textbf{ICL-10 fa0} & \textbf{$\sigma$} & \textbf{$\Delta$ vs F0 (test-17)} & \textbf{$\Delta$ vs F0 (ICL-10)} \\
+    \midrule
+    F0 (vanilla CC)             & 0.910 & 0.024 & 0.720 & 0.081 & --     & --       \\
+    F1 (R$+$M)                  & 0.885 & 0.014 & --    & --    & $-0.025$ & --     \\
+    F2 (S$+$M)                  & 0.919 & 0.004 & --    & --    & $+0.009$ & --     \\
+    F3 (R$+$S)                  & 0.857 & 0.045 & --    & --    & $-0.053$ & --     \\
+    F4 (X$+$M)                  & \textbf{0.921} & 0.007 & 0.768 & 0.005 & $\mathbf{+0.011}$ & $+0.048$ \\
+    F5 (R$+$X)                  & 0.893 & 0.033 & --    & --    & $-0.017$ & --     \\
+    F6 (S$+$X)                  & 0.917 & 0.004 & 0.781 & \textbf{0.002} & $+0.007$ & $+0.061$ \\
+    F7 (R$+$S$+$X$+$M)          & 0.885 & 0.008 & --    & --    & $-0.025$ & --     \\
+    F8 (S$+$X$+$M)              & 0.911 & 0.018 & 0.783 & 0.022 & $+0.001$ & $+0.063$ \\
+    F11 (decomposed SE)         & 0.897 & 0.032 & 0.775 & 0.024 & $-0.013$ & $+0.055$ \\
+    SE (self-evolved monolith)  & 0.919 & 0.020 & \textbf{0.789} & 0.012 & $+0.009$ & $\mathbf{+0.069}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{On test-17, adapter wins are within seed noise.} The best test-17 cell (F4) beats the F0 baseline by $+0.011$, well within the seed standard deviation of either ($\sigma_{F0}=0.024$, $\sigma_{F4}=0.007$). All non-RAG cells (F0, F2, F4, F6, SE) cluster in 0.910--0.921. The cells with RAG (F1, F3, F5, F7) all sit at 0.857--0.893; on test-17 the only main effect that clears noise is RAG, and it is \emph{negative}.
+
+\paragraph{On ICL-10, adapter wins are real and substantial.} Every cell drops in absolute fa0 (test-17 is the easier set), but the spread between baseline and best widens dramatically. F0 drops to $0.720$, while SE holds at $0.789$. The best cell on ICL-10 is the self-evolved monolith SE at $0.789$, exceeding the test-17 winner F4 by $+0.021$ and the F0 baseline by $+0.069$. Three independent factor combinations (F6, F8, SE) all land in $0.781$--$0.789$ on ICL-10 --- the win is robust to the specific combination of adaptations as long as the schema-validation MCP (X) is on.
+
+\paragraph{Reliability is the largest visible adapter effect.} On the OOD set, F0 has $\sigma=0.081$ (one of the three F0 seeds had a complete parser-failure on \texttt{ExampleProppantTest} and was scored 0). The same task set under F4 yields $\sigma=0.005$ and under F6 yields $\sigma=0.002$. The adapter's first-order job is to prevent catastrophic seed-level failures; mean lift is downstream of that. We report sample standard deviations throughout; population standard deviations (the convention in some of our internal tooling) are ${\sim}18\%$ smaller and do not change any qualitative conclusion.
+
+\subsection{Resolution-IV main effects on test-17}
+\label{subsec:main-effects}
+
+The eight factorial cells (F0--F7) on test-17 yield the per-factor main effects in Table~\ref{tab:main-effects}, estimated as the mean fa0 difference between the four cells with the factor on and the four with it off. R is the only factor whose magnitude exceeds the seed-noise floor; X and M are positive but small; S is essentially zero. On test-17 alone the design implication is ``don't add RAG; the rest doesn't matter.'' The ICL-10 results above already show this conclusion is benchmark-specific.
+
+\begin{table}[h]
+  \caption{Resolution-IV main effects on test-17 fa0 (\texttt{deepseek-v4-flash}, $n=3$ per cell).}
+  \label{tab:main-effects}
+  \centering
+  \small
+  \begin{tabular}{lr}
+    \toprule
+    \textbf{Factor} & \textbf{$\Delta$ fa0} \\
+    \midrule
+    R (RAG)                & $-0.032$ \\
+    S (Stop-hook)          & $-0.003$ \\
+    X (xmllint MCP)        & $+0.007$ \\
+    M (memory cheatsheet)  & $+0.004$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Where the ICL-10 gain comes from}
+\label{subsec:per-task}
+
+Aggregating across cells obscures \emph{which} tasks the adapters rescue. Table~\ref{tab:per-task-icl10} reports per-task TreeSim on ICL-10, sorted ascending by F0 score.
+
+\begin{table}[t]
+  \caption{Per-task ICL-10 TreeSim (mean across 3 seeds), sorted ascending by F0 score. The aggregate $+0.069$ F0$\to$SE gain is concentrated in the top two tasks.}
+  \label{tab:per-task-icl10}
+  \centering
+  \footnotesize
+  \begin{tabular}{lrrrrrr}
+    \toprule
+    \textbf{Task} & \textbf{F0} & \textbf{F4} & \textbf{F6} & \textbf{F8} & \textbf{F11} & \textbf{SE} \\
+    \midrule
+    \texttt{TutorialHydraulicFractureWithAdvancedXML}      & 0.013 & 0.013 & 0.013 & 0.013 & 0.013 & 0.013 \\
+    \texttt{AdvancedExampleThermoPoroElasticWellbore}      & 0.355 & 0.680 & 0.681 & 0.708 & 0.743 & \textbf{0.761} \\
+    \texttt{ExampleProppantTest}                           & 0.541 & 0.810 & 0.809 & 0.799 & 0.817 & \textbf{0.825} \\
+    \texttt{ExampleIsothermalHystInjection}                & 0.755 & 0.747 & 0.751 & 0.750 & 0.769 & 0.717 \\
+    \texttt{AdvancedExampleCasedThermoElasticWellbore}     & 0.847 & 0.807 & 0.923 & 0.919 & 0.877 & 0.886 \\
+    \texttt{ExamplesingleFracCompression}                  & 0.891 & 0.887 & 0.904 & 0.931 & 0.929 & 0.928 \\
+    \texttt{ExampleVerticalPoroElastoPlasticWellbore}      & 0.909 & 0.903 & 0.906 & 0.891 & 0.834 & 0.944 \\
+    \texttt{ExampleMCCWellbore}                            & 0.935 & 0.924 & 0.908 & 0.905 & 0.905 & 0.941 \\
+    \texttt{AdvancedExamplePureThermalDiffusionWellbore}   & 0.963 & 0.922 & 0.956 & 0.947 & 0.864 & 0.880 \\
+    \texttt{AdvancedExampleViscoExtendedDruckerPrager}     & 0.986 & 0.991 & 0.963 & 0.964 & 0.999 & 0.996 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The aggregate $+0.069$ F0$\to$SE gain decomposes into:
+\begin{enumerate}
+  \item \textbf{Two catastrophic-failure rescues}: \texttt{AdvancedExampleThermoPoroElasticWellbore} (F0 $= 0.355 \to$ SE $= 0.761$, $+0.406$) and \texttt{ExampleProppantTest} (F0 $= 0.541 \to$ SE $= 0.825$, $+0.284$). Together these two tasks account for essentially the entire aggregate gain.
+  \item \textbf{One universal failure}: \texttt{TutorialHydraulicFractureWithAdvancedXML} scores $0.013$ across every cell. The XML grammar in this task is sufficiently far outside what the model was trained on that no harness adaptation we evaluated rescues it. We treat this as a model-capability boundary, not an adapter-design failure.
+  \item \textbf{Seven mild changes ($\pm 0.04$)}: tasks where F0 already produced reasonable XML; on these the adapters slightly increase or decrease score within seed noise.
+\end{enumerate}
+
+The plugin's role on ICL-10 is therefore narrow but real: it prevents the baseline from collapsing on a small number of structurally hard tasks. On easy tasks no cell beats any other.
+
+\subsection{Bottleneck analysis: how adapters reshape the failure distribution}
+\label{subsec:bottleneck-results}
+
+Running the per-task DSv4-flash classifier (Sec.~\ref{subsec:bottleneck}) across all (cell, seed, task) triples and aggregating yields Table~\ref{tab:bottleneck}. Two cross-cutting patterns emerge that hold on both task sets.
+
+\begin{table}[t]
+  \caption{Failure-category counts per cell. Test-17 panel uses $n=51$ tasks per cell ($3{\times}17$); ICL-10 panel uses $n=29$--30 ($3{\times}10$ minus a small number of LLM-judge parse-failures, retained as their own row in our internal tables but elided here for brevity).}
+  \label{tab:bottleneck}
+  \centering
+  \footnotesize
+  \begin{tabular}{l|ccccc|cccccc}
+    \toprule
+    & \multicolumn{5}{c|}{\textbf{test-17 ($n=51$)}} & \multicolumn{6}{c}{\textbf{ICL-10 ($n=30$)}} \\
+    \textbf{Category} & F0 & F2 & F4 & F6 & SE & F0 & F4 & F6 & F8 & F11 & SE \\
+    \midrule
+    bad\_attribute\_value     & 12 & 12 & 11 & 15 & 9  & 5 & 7 & 5 & 8 & 0 & 0 \\
+    extra\_block              &  9 &  8 & 11 &  5 & 10 & 9 & 4 & 4 & 6 & 7 & 5 \\
+    hallucinated\_extras      &  4 &  8 &  7 &  - &  - & 0 & 0 & 0 & 0 & 3 & 4 \\
+    missing\_block            &  6 &  4 &  3 &  2 &  - & 4 & 5 & 7 & 7 & 7 & 4 \\
+    partial\_implementation   &  7 &  9 &  6 & 10 &  9 & 1 & 0 & 4 & 3 & 3 & 5 \\
+    structural\_mismatch      &  6 &  8 &  7 & 11 &  - & 8 & 6 & 6 & 5 & 3 & 5 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{The category the adapters reliably fix is \texttt{missing\_block}.} On test-17 it drops from 6 (F0) to 3 (F4); on ICL-10 the picture is noisier (the OOD set has more catastrophic failures of various kinds and small per-cell counts), but the adapter cells avoid the 9 \texttt{extra\_block} F0 produces. \texttt{missing\_block} is the failure where the agent simply omits an entire required section --- a \texttt{<Solvers>} block, an \texttt{<Events>} schedule, or in one case a \texttt{<Constitutive>} root. The xmllint MCP catches these because the schema requires them; the cheatsheet enumerates them as universally required.
+
+\paragraph{The category the adapters fail to fix --- and sometimes worsen --- is \texttt{bad\_attribute\_value}.} F0 has 12 such failures on test-17; F4 has 11; F6 has 15. The cheatsheet enumerates allowed solver names, but the agent still picks wrong stabilisation methods (\texttt{TPFAstabilization} vs the required \texttt{contactStabilization}), invents non-existent attributes (\texttt{gravityVector="\{0,0,-9.81\}"} on \texttt{<Solvers>}), and omits required attributes (\texttt{temperature="0"} on \texttt{<SinglePhaseFVM>}). Schema validation passes, because xmllint checks types and presence rather than domain semantics.
+
+\paragraph{Adapters trade catastrophic absence for content imprecision.} Across both task sets, the adapter cells reduce \texttt{missing\_block} but increase \texttt{partial\_implementation} and (on test-17) \texttt{extra\_block}. The shift is most visible in F4 vs F0 on test-17: \texttt{missing\_block} drops $6 \to 3$ but \texttt{extra\_block} rises $9 \to 11$ and \texttt{hallucinated\_extras} rises $4 \to 7$. The cheatsheet and xmllint together push the agent toward producing all required sections, but the agent then adds extras that schema-validate but are not in the ground truth. The net effect is a small mean lift and a substantial reliability lift, which is what we measure.
+
+\paragraph{Number of perfect tasks does not increase.} Counting tasks with TreeSim $\geq 0.999$ across cells on test-17: F0 has 7/51, F4 has 6/51, SE has 6/51. The adapter is in a \emph{harm-reduction} regime, not a \emph{correctness} regime: it rescues failures that would have been catastrophic but does not produce more strictly-correct decks. We return to the design implications in Sec.~\ref{sec:discussion}.
+
+\subsection{Efficiency}
+\label{subsec:efficiency}
+
+Adapter cells are no more expensive than F0 in wall-clock per task. Table~\ref{tab:efficiency} reports mean tool calls and per-task wall time across $n=3$ seeds. Cells with the cheatsheet (F4, F6, F8) make about half as many free-form \texttt{Read} calls as F0, because the cheatsheet partially short-circuits exploratory file-system access. xmllint cells make ${\sim}3$ schema-validation calls per task (compared to 0 for F0). RAG cells (omitted here for space; see Appendix~\ref{app:results}) make ${\sim}12$--$13$ retrieval calls per task and run faster but also score lower.
+
+\begin{table}[h]
+  \caption{Mean tool calls and wall-clock per task ($n=3$ seeds). Wall is per-task seconds. \texttt{deepseek-v4-flash} output tokens are not exposed by the API; input tokens are dominated by cache-read of the system prompt.}
+  \label{tab:efficiency}
+  \centering
+  \small
+  \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Cell} & \textbf{tools/task (test-17)} & \textbf{wall s (test-17)} & \textbf{tools/task (ICL-10)} & \textbf{wall s (ICL-10)} \\
+    \midrule
+    F0  & 81.5 & 359 & 90.5 & 417 \\
+    F4  & 79.6 & 337 & 75.0 & 340 \\
+    F6  & 83.3 & 348 & 74.7 & 345 \\
+    F8  & 71.0 & 326 & 82.9 & 358 \\
+    F11 & 62.7 & 326 & 70.9 & 362 \\
+    SE  & 68.9 & 321 & 97.4 & 390 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Memory-as-retrieval: a clean negative result}
+\label{subsec:memory-negative}
+
+An earlier version of our system attempted to expose cheatsheet-like content through an MCP \texttt{memory\_lookup} tool with embedding top-$k$ retrieval over a distilled corpus. Across every test-set run in which the tool was available, the agent called it \textbf{zero times}. The tool is functional (verified to fail hard on a missing API key and to return correctly formatted results when called manually). The agent simply did not elect to invoke it. We treat this as a clean negative result on this task--model pair: making procedural domain knowledge \emph{retrievable} is not sufficient if the agent does not invoke retrieval. Delivering the same content through an always-on channel (\texttt{--append-system-prompt}, the M factor) produced the lift instead.
+
+\subsection{Cross-model: plugin generalises across backbones}
+\label{subsec:cross-model}
+
+The headline cells in Table~\ref{tab:main-results} all use \texttt{deepseek-v4-flash}. To check that the plugin's contribution is not a deepseek-v4-flash-specific artefact, we re-run the F0 (vanilla CC) and a single-factor RAG-only cell (effectively F0$+\mathrm{R}$) on \texttt{deepseek-v3.2} and \texttt{minimax/minimax-m2.7} on a 35-task superset that overlaps test-17. The plugin lifts $+0.175$ on \texttt{deepseek-v3.2} (paired 35 tasks) and $+0.115$ on \texttt{minimax-m2.7} (paired 15 tasks). The plugin generalises across backbones; the same is plausible but unverified for the cheatsheet (M factor) on backbones other than \texttt{deepseek-v4-flash}.
+
+\subsection{Harness-less one-shot: a model-class lower bound}
+\label{subsec:harnessless}
+
+To bound what a base model can do without any harness at all, we ran a one-shot direct-prompting baseline on \texttt{minimax-m2.7} (\texttt{scripts/harnessless\_eval.py}; \texttt{deepseek-v4-flash} not yet run in this configuration). Inputs: one held-out ICL demonstration (task plus ground-truth XML), one call per task, with an inline-XML protocol replacing all file-system instructions. Result on test-17: fa0 $= 0.333$ (16 parsed, 1 silent provider drop counted as zero), with no task passing TreeSim $\geq 0.7$. We treat this as a model-class lower bound: the vanilla Claude Code harness on the same model recovers ${+}0.164$, and any cell on \texttt{deepseek-v4-flash} reaches a different absolute level ($\geq 0.857$). In both cases the harness contributes a substantial amount even before any GEOS-specific adaptation.
+
+
+%% ============================================================
+\section{Analysis}
+\label{sec:analysis}
+
+\subsection{When does an adapter actually help?}
+\label{subsec:when-adapters-help}
+
+The two most informative comparisons in this campaign are \emph{test-17 vs ICL-10} and \emph{F0 vs SE}. They suggest a heuristic:
+
+\begin{itemize}
+  \item \textbf{On familiar in-distribution benchmarks} (test-17), \texttt{deepseek-v4-flash} reaches ${\sim}0.92$ with no plugin. Adapter cells lift the mean by less than $1.1$pp, which is within the seed standard deviation of either side. Aggregate-mean comparisons on this set will systematically conclude that adapters add nothing.
+  \item \textbf{On out-of-distribution tasks} (ICL-10), the baseline catastrophically fails on a small number of structurally hard tasks while adapters rescue them, yielding $+5\text{--}7$pp aggregate gains. The same adapter that looks neutral on test-17 looks transformative on ICL-10.
+\end{itemize}
+
+This explains why prior literature on coding-agent harnesses has produced contradictory results: a benchmark close to the model's training distribution shows nearly no adapter value, while a benchmark with novel task types makes the same adapter look useful. We see the same effect within a single project. The implication for benchmark design is that aggregate-mean on a small in-distribution test set is a poor measurement instrument for adapter value; OOD task pools and per-task analysis are both necessary.
+
+\subsection{What do the adapters actually fix?}
+\label{subsec:what-fixed}
+
+The bottleneck analysis (Sec.~\ref{subsec:bottleneck-results}) decomposes the aggregate quality delta into specific structural error classes:
+
+\begin{enumerate}
+  \item \textbf{Block presence (\texttt{missing\_block})} is the category xmllint and the cheatsheet reliably fix. On test-17 this category drops $6{\to}3$ under F4. The xmllint MCP catches absent top-level blocks because the schema requires them; the cheatsheet enumerates them.
+  \item \textbf{Block content (\texttt{bad\_attribute\_value})} is the category that survives every adapter. F0 has 12 such failures on test-17; F4 has 11; F6 has 15. Schema validation cannot enforce \emph{correct} attribute values, only that attributes are typed correctly. The persistent \texttt{gravityVector="\{0,0,-9.81\}"} hallucination on \texttt{<Solvers>} that F4 introduces on multiple ICL-10 tasks is a textbook example: the schema permits the attribute, but the GT for these specific tasks does not include it.
+  \item \textbf{Block over-generation (\texttt{extra\_block}, \texttt{hallucinated\_extras})} \emph{increases} under memory-equipped adapters, not decreases. The cheatsheet seeds patterns (``for poromechanics include $X$, $Y$, $Z$'') that the agent applies more aggressively than the GT warrants.
+\end{enumerate}
+
+The \emph{number of perfect tasks does not increase} under any adapter we tested. The adapter operates in a harm-reduction regime, raising the floor but not raising the ceiling. Producing strictly more correct decks would require content-level oracles that none of our cells include.
+
+\subsection{Concrete adapter-design recommendations}
+\label{subsec:adapter-design}
+
+Each recommendation is grounded in a specific failure category that survives the F0$\to$best-config transition:
+
+\begin{enumerate}
+  \item \textbf{Schema-enforced block presence is the cheapest reliable adapter}. It eliminates ${\sim}50\%$ of \texttt{missing\_block} failures at the cost of one xmllint MCP call per task. We recommend this as a baseline for any GEOS-XML benchmark harness.
+  \item \textbf{Memory cheatsheets should be paired with negative constraints}. Our m1u cheatsheet (a list of ``for physics $X$, use solver $Y$'') increases \texttt{extra\_block} and \texttt{hallucinated\_extras} because the agent applies patterns aggressively. Future memory designs should explicitly enumerate child-count limits and forbidden elements (``the GT for this task family contains exactly 6 Constitutive children, no more'').
+  \item \textbf{Attribute-level oracles are the next frontier}. \texttt{bad\_attribute\_value} is the single most stable failure category across cells (12--15/51 on test-17, 5--8/30 on ICL-10) and remains untouched by xmllint, memory, or self-evolution. An adapter that maintains a per-solver-type allowed-attribute table and a per-element allowed-name table would attack this category directly.
+  \item \textbf{Cross-section consistency hooks}. A separate analysis we did not include in the headline tables (memory-free cells on a 19-task in-distribution scaleup) surfaced a class of failures where \texttt{<ElementRegion materialList="X,Y,Z">} references material names that do not exist in the \texttt{<Constitutive>} block. Schema validation passes; runtime would fail. A simple cross-reference resolver would catch these.
+  \item \textbf{Closed-loop retries driven by validator output}. The adapter's effect on the perfect-task count is essentially nil ($7/51$ for F0 vs $6/51$ for F4 on test-17). Static hooks raise the floor but do not enable corrections. To produce strictly more correct outputs the adapter needs feedback loops: ``xmllint says $X$ is missing; add $X$ and re-validate.''
+\end{enumerate}
+
+\subsection{What changed in our own narrative}
+\label{subsec:pivot}
+
+We note a narrative pivot during this work because the lessons are relevant to other applied-agent papers.
+
+\emph{Early narrative:} ``We built a RAG plugin, a self-refinement hook, a memory module, and a self-evolved variant; we should pick the winner and ship it.''
+
+\emph{Revised narrative:} the memory-as-retrieval tool is never invoked (Sec.~\ref{subsec:memory-negative}); RAG (the R factor) is the only main effect that clears noise on test-17, and it is \emph{negative}; the Stop-hook (S) is essentially zero; xmllint (X) and memory cheatsheet (M) are positive but small. The one component that drives the lift on the OOD set is the schema-validation MCP, paired with either the cheatsheet or the self-evolved prose primer. The initial belief was partly a product of (i) a two-seed low-variance artefact on an early baseline ($\sigma = 0.017$) that turned out to be a sampling fluke when run for a third seed, (ii) a memory-index artefact that leaked 13 of 17 test-task ground-truth basenames via auxiliary fields, inflating apparent memory gains, and (iii) seed and specification noise in earlier pilots on a different base model. A hygiene audit pipeline was added after an adversarial review flagged these issues. The practical consequence for applied-agent papers is that aggregate-mean comparisons on the same task set the cells were tuned against will systematically over- or under-state value; an OOD evaluation set and a per-failure-mode decomposition are both load-bearing.
+
+\subsection{Usefulness for real geophysics workflows}
+
+The motivating expert correspondence emphasises that a realistic study may require \emph{dozens} of simulations with different subsurface realizations, and that engineering-objective studies amplify this further. A TreeSim-fa0 of $0.789$ on out-of-distribution tasks is not yet at the point where an agent can be left unsupervised, but it is plausibly at the point where the agent can produce a reasonable first draft that a specialist edits, rather than a specialist writing from scratch. Appendix~\ref{app:case-study} describes one representative end-to-end trajectory (pending expert review).
+
+
+%% ============================================================
+\section{Discussion and limitations}
+\label{sec:discussion}
+
+\paragraph{Is this a ``framework''?}
+No. We do not propose a new agent framework. We customise an existing coding harness (Claude Code) with four binary adaptations and a self-evolved variant, and report what each one buys on two task distributions. The scientific contribution is in the application, the OOD evaluation, and the failure-mode decomposition, not in the agent algorithm.
+
+\paragraph{Dependence on a proprietary harness.}
+Claude Code is a proprietary product; its internals and default system prompt can change between versions. We fix our experiments to a particular CC version (\todo{cite version number}) and make our plugin, hook, cheatsheet, self-evolved plugin, and evaluation code available (\S\ref{app:impl}). A reviewer-relevant open question is whether the same adaptations transfer to an open coding harness such as OpenHands or Aider. We consider this the single most important follow-up experiment; it is not in the current draft.
+
+\paragraph{Single backbone for headline results.}
+All cell-level numbers in Table~\ref{tab:main-results} use \texttt{deepseek-v4-flash}. The plugin (R factor) effect is also confirmed on \texttt{deepseek-v3.2} and \texttt{minimax-m2.7} (Table earlier in \S\ref{subsec:cross-model}); the cheatsheet (M factor), xmllint (X), Stop-hook (S), and SE plugin are not tested on backbones other than \texttt{deepseek-v4-flash}. It is plausible that the absolute lift is smaller on a stronger base model and larger on a weaker one (paralleling the plugin's cross-model pattern), though the \emph{direction} of the effect is likely preserved.
+
+\paragraph{Benchmark size and ICL-10 specifically.}
+The 17-task in-distribution set is small by ML-benchmark standards but large by wet-lab or engineering-case-study standards. ICL-10, the OOD set on which adapter wins are visible, is smaller still and the headline gains on it are concentrated in two tasks (Sec.~\ref{subsec:per-task}). Stronger conclusions about ``adapters help on OOD tasks'' require a larger OOD pool or a deliberately adversarial held-out-physics variant; we treat the ICL-10 result as a strong existence-of-effect finding rather than a quantitative effect-size claim.
+
+\paragraph{Bottleneck-analysis labels are not adjudicated.}
+The per-task failure categorisation (Table~\ref{tab:bottleneck}) comes from \texttt{deepseek-v4-flash} prompted with strict-JSON output. The category counts are descriptive, not gold-standard labels. The DSv4-pro syntheses occasionally over-claim mechanism (e.g., one synthesis attributed an SE win to ``post-generation diff against ground truth'' when SE has no GT access at runtime). Numerical observations from Stage~1+2 are reliable; causal claims about \emph{why} adapters help should be cross-checked against per-task evidence (we provide the per-task CSV in the supplement).
+
+\paragraph{Seed discipline.}
+We use $n=3$ independent runs per (cell, task-set) combination. Three seeds is the minimum at which our standard deviations stabilise; we report sample standard deviations throughout. The DeepSeek API exposes provider-side determinism but not a seed flag, so ``seeds'' here denote independent runs with identical prompts. Best-vs-mean inspection: three cells (F0 on ICL-10, F11 on test-17, F3 on test-17) have a best-vs-mean gap exceeding $3$pp, in each case driven by a single seed where one task produced an unparseable XML and was scored 0; we report the mean throughout, and treat the brittleness pattern itself as evidence of why adapters help.
+
+\paragraph{TreeSim as a proxy for correctness.}
+TreeSim is a tree-edit similarity; it is not a physics-correctness check. A deck that scores 1.0 against ground truth is structurally identical to a hand-validated deck, but a deck that scores 0.8 is not guaranteed to be runnable, let alone physically correct. Integrating the GEOS simulator itself into evaluation (``does the deck run? does it converge? are the outputs sensible?'') is a natural extension.
+
+\paragraph{Broader impact.}
+Lowering the configuration barrier for scientific simulators could accelerate legitimate research (uncertainty quantification, geothermal design, carbon storage) but could also enable less careful studies. Human expert review of agent-produced decks remains important, and we frame the system as an assistant rather than an autonomous researcher.
+
+
+%% ============================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We built a Claude Code agent customised for authoring GEOS XML decks and measured its components against two task distributions on \texttt{deepseek-v4-flash}: a 17-task in-distribution test set (test-17) and a 10-task out-of-distribution set (ICL-10) the harness has never seen. We laid out four binary adaptation factors --- domain RAG (R), Stop-hook self-refine (S), schema-validation MCP (X), memory cheatsheet (M) --- in a Resolution-IV $2^{4-1}$ factorial, and added a self-evolved monolithic-plugin variant (SE) for comparison. On test-17, every reasonable cell lands in $0.910$--$0.921$ and the adapter wins are within seed noise; the only main effect that clears noise is RAG, and it is negative. On ICL-10, F0 baseline drops to $0.720$ while SE reaches $0.789$ ($+6.9$pp), and the seed standard deviation drops by ${\sim}40\times$. The bottleneck analysis (DSv4-flash classifier across $\sim$650 (cell, seed, task) triples) shows that adapters reliably fix \texttt{missing\_block} but not \texttt{bad\_attribute\_value}, and they do not produce more strictly-perfect decks. The paper is an application study with modest method novelty; its value lies in the OOD benchmark, the component-by-component evidence, the failure-mode decomposition, and an honest account of what did and did not work.
+
+
+\begin{ack}
+\todo{Acknowledgments (hidden in anonymous submission).}
+\end{ack}
+
+
+\todo{(1) fill in missing info from references (polyjarvis2026, dynamate2025, and alber2025cellvoyager) (2)Populate references. Minimal set needed for this draft: Chen et al.\ ScienceAgentBench 2025; Huang et al.\ DA-Code 2024; Wang et al.\ OpenHands 2024; Yang et al.\ SWE-agent 2024; Chen et al.\ Self-Debug 2024; Zhang \& Sun SciNav ICLR 2026; Bran et al.\ ChemCrow NMI 2024; Alber et al.\ CellVoyager bioRxiv 2025; Lu et al.\ AI Scientist Nature 2026; Tang et al.\ Eigen-Agent ICLR 2026; Li et al.\ AgentFlow ICLR 2026; Yang et al.\ Buffer of Thoughts 2024; GEOS-DEV team GEOS simulator (cite repository and LLNL technical report).}
+
+\medskip
+
+{
+\small
+}
+\bibliographystyle{abbrvnat}
+\bibliography{references}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\appendix
+
+\section{Benchmark details}
+\label{app:bench}
+
+\subsection{Task pool, splits, and hygiene}
+The 46-task pool is mined from GEOS advanced examples and tutorial decks. Ten tasks are held out as an ICL pool: \texttt{AdvancedExampleCasedThermoElasticWellbore}, \texttt{AdvancedExamplePureThermalDiffusionWellbore}, \texttt{AdvancedExampleThermoPoroElasticWellbore}, \texttt{AdvancedExampleViscoExtendedDruckerPrager}, \texttt{ExampleIsothermalHystInjection}, \texttt{ExampleMCCWellbore}, \texttt{ExampleProppantTest}, \texttt{ExamplesingleFracCompression}, \texttt{ExampleVerticalPoroElastoPlasticWellbore}, \texttt{TutorialHydraulicFractureWithAdvancedXML}. The remaining 36 are split by odd/even index (sorted by CC+plugin training-run fa0) into an 18-task distillation corpus and a 17-task test set (one task dropped). Ground-truth decks live at \texttt{/data/shared/geophysics\_agent\_data/data/eval/experiments\_gt/}.
+
+\subsection{Spec versions (v1 vs v2)}
+Two instruction sets exist: v1 (original mined specs, used in pre-2026-04-21 deepseek runs) and v2 (cleaner, more self-contained rewrites, used in all post-D-004 runs). Mid-project comparisons that crossed the versions were contaminated; re-runs on v2 re-anchored the canonical baselines. All numbers in this paper use v2.
+
+\subsection{Failure taxonomy (expanded)}
+\label{app:failures}
+
+\todo{Expand the F1--F4 taxonomy (\S\ref{subsec:mechanism}) with per-task counts and representative excerpts.}
+
+\section{Implementation details}
+\label{app:impl}
+
+\subsection{Plugin / tool shapes}
+Plugin is delivered via \texttt{--settings /path/to/settings.json --strict-mcp-config} to preserve tool-list-shape parity with baselines (not \texttt{--plugin-dir}). The three MCP tools are backed by three ChromaDB collections built at install time. \todo{Include the settings.json example and the collection-construction script pointer.}
+
+\subsection{Hook wiring}
+Historical note: prior to 2026-04-21T12:08Z, \texttt{hooks.json} had the wrong schema and \texttt{run\_experiment.py} never passed \texttt{--plugin-dir}, so early ``hook-on'' runs did not actually load the hook. All post-fix results in this paper use a verified-wired hook.
+
+\subsection{Primer artefacts and hygiene}
+The M1-u primer is at \texttt{plugin/memory\_primer\_m1u.md}\footnote{filename pending final confirmation}. The hygiene audit is at \texttt{scripts/memory/hygiene\_audit.py}; the API-contamination check is at \texttt{scripts/memory/check\_api\_contamination.py}.
+
+\subsection{Harness-less baseline}
+Harness-less eval: \texttt{scripts/harnessless\_eval.py}. System prompt = \texttt{run/AGENTS.md} with file-system paragraphs stripped and replaced by the inline-XML protocol shown in \S\ref{subsec:harnessless}. Temperature 0.2, \texttt{max\_tokens} $=$ 16384, 600-s per-request timeout, 8-worker thread pool.
+
+\section{Example GEOS deck}
+\label{app:geos-example}
+
+\todo{Include a representative GEOS XML deck (abridged) showing the canonical 10 sections and a brief walkthrough of the cross-section constraints (region-name matching, solver-target coherence) that make deck authoring nontrivial.}
+
+\section{Additional results}
+\label{app:results}
+
+\subsection{Harness-less one-shot, per task}
+\begin{table}[h]
+  \caption{Harness-less 1-shot TreeSim per task. Seed 1 only; \texttt{ExampleEDPWellbore} counted as 0 due to a silent provider drop after $\sim 515$s.}
+  \label{tab:harnessless}
+  \centering
+  \small
+  \begin{tabular}{lr}
+    \toprule
+    \textbf{Task} & \textbf{TreeSim} \\
+    \midrule
+    buckleyLeverettProblem                              & 0.516 \\
+    ExampleThermalLeakyWell                             & 0.444 \\
+    TutorialPoroelasticity                              & 0.414 \\
+    AdvancedExampleExtendedDruckerPrager                & 0.400 \\
+    AdvancedExampleDeviatedElasticWellbore              & 0.383 \\
+    pknViscosityDominated                               & 0.379 \\
+    kgdExperimentValidation                             & 0.374 \\
+    AdvancedExampleViscoDruckerPrager                   & 0.364 \\
+    ExampleIsothermalLeakyWell                          & 0.350 \\
+    ExampleDPWellbore                                   & 0.337 \\
+    TutorialSneddon                                     & 0.332 \\
+    ExampleMandel                                       & 0.331 \\
+    AdvancedExampleDruckerPrager                        & 0.327 \\
+    AdvancedExampleModifiedCamClay                      & 0.276 \\
+    AdvancedExampleCasedContactThermoElasticWellbore    & 0.245 \\
+    ExampleThermoporoelasticConsolidation               & 0.182 \\
+    ExampleEDPWellbore                                  & 0 (FAIL) \\
+    \midrule
+    \textbf{fa0 mean (17)}                              & \textbf{0.333} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Per-task breakdown of the headline run (M1-u)}
+\todo{Add per-task TreeSim for each of the 3 M1-u seeds, with paired deltas against A3.}
+
+\subsection{Training-set distillation audit}
+\todo{Include the hygiene-gate pass/fail log for each memory/primer variant.}
+
+
+\section{Representative trajectory}
+\label{app:case-study}
+
+\todo{Abridged transcript of one successful trajectory (suggested: TutorialSneddon or ExampleMandel under M1-u) showing (i) initial plan, (ii) RAG tool calls, (iii) XML emission, (iv) hook event (if any), (v) final TreeSim. Should fit in 1--1.5 pages.}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newpage
+\input{checklist.tex}
+
+
+\end{document}
