@@ -174,48 +174,16 @@ def run_claude_native_task(
     heartbeat_thread = threading.Thread(target=heartbeat_status, daemon=True)
     heartbeat_thread.start()
 
-    # Deadline + verify-hook extension. Each verify_outputs Stop block costs
-    # the agent real wall clock (the model has to think + Write again), so a
-    # task that hits 1-2 hook blocks can mechanically exhaust the base budget.
-    # Grant a small extension per observed block, capped at GEOS_TASK_HARD_MAX.
-    # Reuses the file-backed counter the hook already writes.
-    hook_events_path = result_dir / ".verify_hook_events.jsonl"
-    extension_per_block = int(os.environ.get("GEOS_TASK_HOOK_EXTENSION_S", "180"))
-    hard_max = max(timeout, int(os.environ.get("GEOS_TASK_HARD_MAX", "3000")))
-    cap_extra = max(0, hard_max - timeout)
-
-    deadline = started + timeout
-    extra_granted = 0.0
-    return_code: int | None = None
-    process_status = "success"
     try:
-        while True:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                proc.kill()
-                return_code = None
-                process_status = "timeout"
-                break
-            try:
-                return_code = proc.wait(timeout=min(remaining, 10.0))
-            except subprocess.TimeoutExpired:
-                if extra_granted < cap_extra and hook_events_path.exists():
-                    try:
-                        text = hook_events_path.read_text(encoding="utf-8", errors="ignore")
-                    except OSError:
-                        text = ""
-                    blocks = sum(1 for line in text.splitlines() if '"decision": "block"' in line)
-                    desired_extra = min(blocks * extension_per_block, cap_extra)
-                    if desired_extra > extra_granted:
-                        deadline += (desired_extra - extra_granted)
-                        extra_granted = desired_extra
-                continue
-            else:
-                if STOP_REQUESTED.is_set() and return_code != 0:
-                    process_status = "interrupted"
-                else:
-                    process_status = "success" if return_code == 0 else "failed"
-                break
+        return_code = proc.wait(timeout=timeout)
+        if STOP_REQUESTED.is_set() and return_code != 0:
+            process_status = "interrupted"
+        else:
+            process_status = "success" if return_code == 0 else "failed"
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return_code = None
+        process_status = "timeout"
     finally:
         heartbeat_stop.set()
         _unregister_process(proc)
