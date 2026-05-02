@@ -10,6 +10,28 @@
 <!-- STATE-OF-KNOWLEDGE-START -->
 
 ### What we know
+- **Smaller-model anchor (qwen3.6-27b) replicates the regime-dependence
+  pattern (overnight 2026-05-02, 1 seed × 17 tasks).** Phase A (F0-eq,
+  no augmentation): 0.882 mean (17/17 scored, 0 failures). Phase B
+  (F4-eq, xmllint MCP + plugin v3): 0.902 on 16 common tasks (+0.008
+  over A); 0.849 with failures-as-0 (1 timeout on
+  ExampleIsothermalLeakyWell). Compare DSv4 F0 0.910 → F4 0.921
+  (+0.011 over 3 seeds). Augmentation effect on common tasks is
+  comparable in magnitude on both models. **Striking single-task lift**:
+  TutorialPoroelasticity 0.346 → 0.689 (+0.343 on qwen) — augmentations
+  help most on tasks where the base struggles. **Caveat**: 1 seed only;
+  augmented stack introduced a 6% timeout rate (1/17) on qwen that did
+  not appear on DSv4. See `docs/2026-05-02_autonomous-campaign-results.md`
+  §"Phase 4 — qwen3.6-27b" and `docs/2026-05-02_efficiency-table.md`.
+- **Paper-ready efficiency table available** (overnight 2026-05-02):
+  per-cell tools, turns, wall-time, and tools-before-Write across
+  9 Phase 2 cells (51 runs each) plus qwen Phase 4. Headline:
+  **F0 baseline 82 tools / 73 tools-before-Write; SE 69 tools / 60
+  tools-before-Write at +0.010 quality** — efficiency without quality
+  sacrifice on the Self-Evolved plugin cell. F4 (xmllint+memory) ties
+  SE on quality (0.921 vs 0.919) but needs ~80 tools, vs SE's 69.
+  See `docs/2026-05-02_efficiency-table.md` for the table and
+  `scripts/efficiency_table.py` for the generator.
 - **Sub-agent orchestrator on DSv4-flash, 17/17 succeeded — but the
   +0.204 vs vanilla DSv4-flash is PRELIMINARY** (XN-018, n=1 seed).
   Adversarial code review (RN-005) flagged 3 P1 blockers BEFORE the
@@ -412,6 +434,7 @@ any new campaign.
 | D-008 | Memory ablation V2: hygiene-fixed design after RN-003 adversarial review | 2026-04-22 | I06, I10, E23, E24 |  |
 | D-009 | Add OpenHands as a third-harness baseline (vanilla parity) | 2026-04-27 | I12 |  |
 | D-010 | Sub-agent orchestrator for GEOS XML authoring | 2026-04-27 | I14, E25 |  |
+| D-autocamp-2026-05-01 | Autocamp 2026-05-01 design decisions | 2026-05-01 |  |  |
 
 ## Dead Ends
 
@@ -424,6 +447,12 @@ any new campaign.
 - [LOG-2026-04-27-4](research_log.md#LOG-2026-04-27-4) — 2026-04-27 — OH baseline parity audit + cost/token instrumentation (NOT a "OH > CC" claim)
 - [LOG-2026-04-28-1](research_log.md#LOG-2026-04-28-1) — LOG-2026-04-28-1 — 17-task orchestrator campaign complete (XN-018)
 - [LOG-2026-04-28-2](research_log.md#LOG-2026-04-28-2) — LOG-2026-04-28-2 — Adversarial review (RN-005) finds 3 P1 blockers in XN-018
+
+## Orphan Notes
+
+*These notes have no `dag_nodes` — consider linking them.*
+
+- D-autocamp-2026-05-01: Autocamp 2026-05-01 design decisions
 
 ## Broken Links
 
@@ -445,6 +474,7 @@ any new campaign.
 | D-009 | docs/2026-04-27_other-coding-agent-harness-selection.md | derived_from |
 | D-010 | I14 | dag_nodes |
 | D-010 | docs/2026-04-27_subagent-architecture-geos.md | derived_from |
+| D-autocamp-2026-05-01 | docs/2026-05-01_autonomous-campaign-plan.md | related_to |
 | E01 | ablation_findings.md | evidence |
 | E02 | ablation_findings.md | evidence |
 | E03 | docs/XN-001_plugin-vs-no-plugin-deepseek.md | evidence |

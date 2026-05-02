@@ -537,4 +537,206 @@ AGENTS: dict[str, dict] = {
         "api_key_env": "CURSOR_API_KEY",
         "model": "composer-2",
     },
+    # =============================================================
+    # Autonomous campaign 2026-05-01: contract/method primer split
+    # + factorial ablation. Caller passes --strip-baked-primer with
+    # the appropriate --geos-primer-path (PRIMER_contract.md or
+    # PRIMER_method.md). All results route to dsv4 sub-tree of
+    # /data/shared/.../eval/autocamp_2026-05-01/.
+    # =============================================================
+    # Phase 1 cells: differ only in primer file (passed via CLI).
+    # Both run with no plugin.
+    "autocamp_p_contract": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_p_contract",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": False,
+    },
+    "autocamp_p_method": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_p_method",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": False,
+    },
+    # Phase 2 cells: 2^(4-1) Resolution-IV fractional factorial over
+    # {RAG (R), SR-hook (S), xmllint stack (X), memory (M)}.
+    # Generators: D = ABC. Primer fixed (set via CLI in launch script).
+    # Naming: F<rsxm> where rsxm is 4-bit binary (e.g. F0010 = X-only).
+    #
+    # F0 = baseline (all off). plugin off entirely.
+    "autocamp_F0": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_F0",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": False,
+    },
+    # F1 = R+M. RAG on, memory on, no SR/xmllint. Plugin loaded for
+    # RAG MCP and cheatsheet delivery; stop_hook disabled.
+    "autocamp_F1": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_F1",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "stop_hook_enabled": False,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_dsv4_m1u.md",
+    },
+    # F2 = S+M. SR hook on (parse-check), memory on, no RAG/xmllint.
+    "autocamp_F2": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_F2",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_dsv4_m1u.md",
+    },
+    # F3 = R+S. RAG + SR-hook. No xmllint, no memory.
+    "autocamp_F3": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_F3",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+    },
+    # F4 = X+M. xmllint MCP tool + memory. NO Stop hook (so X here =
+    # MCP tool only; the schema-check-via-hook does NOT fire). Agent
+    # must call validate_geos_xml proactively. No RAG.
+    "autocamp_F4": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_F4",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "stop_hook_enabled": False,
+        "xmllint_mcp_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_dsv4_m1u.md",
+    },
+    # F5 = R+X. RAG + xmllint MCP. NO Stop hook. No memory.
+    "autocamp_F5": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_F5",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "stop_hook_enabled": False,
+        "xmllint_mcp_enabled": True,
+    },
+    # F6 = S+X. SR hook + xmllint stack. No RAG, no memory.
+    "autocamp_F6": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_F6",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "xmllint_mcp_enabled": True,
+    },
+    # F7 = R+S+X+M. Everything on.
+    "autocamp_F7": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_F7",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": True,
+        "plugin_enabled": True,
+        "xmllint_mcp_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_dsv4_m1u.md",
+    },
+    # F8: missing factorial cell — R-S+X+M+. The "all positives, no
+    # RAG" combination. Predicted-best per main effects (M=+0.004,
+    # X=+0.007, S=-0.003, R=-0.033). Adds memory cheatsheet to F6.
+    "autocamp_F8": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_F8",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "xmllint_mcp_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin" / "memory_primer_dsv4_m1u.md",
+    },
+    # F11: SE decomposed — F6 harness (SR + xmllint, no RAG, no skills,
+    # no subagent) + v3's PRIMER and v3's cheatsheet. Tests whether
+    # v3's prose is the active ingredient vs the full v3 plugin
+    # packaging. Primer overridden at launch via CLI; cheatsheet path
+    # set here.
+    "autocamp_F11": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_F11",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "xmllint_mcp_enabled": True,
+        "cheatsheet_path": REPO_ROOT / "plugin_evolving" / "v3" / "memory" / "cheatsheet.md",
+    },
+    # SE: self-skill-authorship. Use plugin_evolving/v3 (most-evolved
+    # round) as the loaded plugin. Same harness as F6 (SR + xmllint
+    # stack, no RAG). Plugin and primer paths overridden in launch
+    # script to plugin_evolving/v3/ + plugin_evolving/v3/PRIMER.md.
+    "autocamp_SE": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_SE",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "xmllint_mcp_enabled": True,
+        "add_native_plugin_prefix": False,
+    },
+    # v4: trajectory-mined lookup tables (task→canonical XML,
+    # constitutive→header, anti-patterns) layered onto a v3-style plugin.
+    # Same harness as SE (xmllint + plugin_enabled). Plugin and primer
+    # overridden at launch to plugin_evolving/v4/.
+    "autocamp_v4": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "dsv4" / "autocamp_v4",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": DEFAULT_CLAUDE_MODEL,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "xmllint_mcp_enabled": True,
+        "add_native_plugin_prefix": False,
+    },
+    # =============================================================
+    # Cross-model cells (Phase 3). Same knobs as DSv4 baseline
+    # (autocamp_F0, no plugin) and best (TBD — will use F6 or F7).
+    # results_dir is overridden at launch time per model.
+    # =============================================================
+    "autocamp_xmodel_baseline": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "xmodel" / "baseline",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": None,  # set per-launch via --claude-model
+        "requires_rag": False,
+        "plugin_enabled": False,
+    },
+    "autocamp_xmodel_best": {
+        "runner": "claude_native",
+        "results_dir": DATA_DIR / "eval" / "autocamp_2026-05-01" / "xmodel" / "best",
+        "api_key_env": "ANTHROPIC_AUTH_TOKEN",
+        "model": None,
+        "requires_rag": False,
+        "plugin_enabled": True,
+        "rag_enabled": False,
+        "xmllint_mcp_enabled": True,
+    },
 }

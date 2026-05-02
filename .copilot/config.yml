@@ -7,7 +7,7 @@ host_docs:
   path: "docs"
   naming: "copilot-numbered"
   pattern: "XN-NNN_slug.md"
-  next_number: 19
+  next_number: 24
   frontmatter: true
   note: |
     Existing hand-authored module docs (README.md, evaluation.md,

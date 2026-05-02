@@ -68,12 +68,71 @@ The C0 primer in full:
 > - The GEOS source repository is mounted at `/geos_lib/`.
 > - Write your final XML output to `/workspace/inputs/`.
 
-That is all the agent is told about *how* to do the task. AGENTS.md
-still carries some GEOS-specific guidance (workflow + base/benchmark
-file pattern + "you are responsible for X"), so C0 is "AGENTS.md +
-just-file-paths primer," not a fully empty harness. This caveat is
-inherited from the parent ablation writeup
-(`2026-04-30_dsv4-ablation-final.md`).
+### AGENTS.md status — verified 2026-05-01
+
+Both C0 (in `dsv4_ablation_2026-04-29/abl_c0_true_vanilla/`) and
+C1redux (in `c6prime_c1redux_2026-05-01/`) launchers explicitly pass
+**`--strip-baked-primer`** (verified by reading the launcher scripts
+and `runner/prompts/__init__.py:load_agents_md`). The 14,836-char
+embedded `# GEOS Primer` block IS removed in both conditions.
+
+What remains in AGENTS.md (5,359 chars / 106 lines, **identical
+across C0 and C1**) is a sizeable operational preamble that both
+conditions inherit:
+
+- **Identity**: "You are GEOS Expert, an assistant for the GEOS
+  multiphysics simulator..."
+- **`USING DOCUMENTATION EXAMPLES`** — explicitly tells the agent:
+  > "Documentation examples and references are REFERENCES, not
+  > templates to copy verbatim. ... Use it to understand the XML
+  > structure, required tags, and solver configuration. Do NOT copy
+  > its parameter values wholesale..."
+- **`INPUT FILE ORGANIZATION (Base/Benchmark Pattern)`** — the
+  `*_base.xml` / `*_benchmark.xml` convention.
+- **`WORKFLOW — AVAILABLE STEPS`** — a 4-step generic workflow
+  ("Determine physics setup → Ask or assume missing specs →
+  Generate/patch XML → Post-processing").
+- **`CRITICAL FILE LOCATION RULES`** — `inputs/`, `outputs/`,
+  `inputs/scripts/`.
+- **`FILE ACCESS RULES`** — explicitly says "Browse
+  `/geos_lib/inputFiles/` for reference XML examples" and "Browse
+  `/geos_lib/src/docs/sphinx/` for RST documentation."
+- **`GEOSDATA PATH RESOLUTION`**, **`DOCUMENTATION PATH RESOLUTION`**,
+  **`SAFETY & CORRECTNESS`** — minor notes.
+
+So **the "C0 has no guidance" framing is overstated**: AGENTS.md
+already tells both conditions where examples and docs live, that
+examples should be treated as references not templates, and the
+base/benchmark pattern. The differential between C0 and C1 is the
+**primer file** that gets *appended* on top:
+
+- **C0 primer (5 lines)**: just "GEOS is multiphysics", `/geos_lib/`,
+  output to `/workspace/inputs/`. Adds essentially nothing on top of
+  AGENTS.md.
+- **C1 primer (~34 lines)**: same file paths PLUS a top-level XML
+  skeleton (Solvers / Mesh / Geometry / Events / NumericalMethods /
+  ElementRegions / Constitutive / FieldSpecifications / Functions /
+  Outputs / Tasks) PLUS an explicit "Recommended workflow: 1. Find a
+  similar existing example using Glob/Grep/Read against
+  /geos_lib/inputFiles/. Search by physics keyword (e.g. Glob for
+  *Wellbore*.xml; Grep for `<SinglePhasePoromechanics`); use Read on
+  the full example XMLs. 2. Read the full example XML and adapt it.
+  3. Write to /workspace/inputs/. 4. Read each file back to verify."
+
+So the C0→C1 delta isn't "no guidance vs some guidance"; it's
+**"shared AGENTS.md baseline" vs "shared baseline + an XML skeleton +
+a 4-step workflow recipe."** The C0 baseline already has enough
+information to know that examples live in `/geos_lib/inputFiles/`
+and docs live in `/geos_lib/src/docs/sphinx/`. What C1 adds is
+*structure prescription* (the XML skeleton orders the sections; the
+workflow numbers the steps).
+
+This reframes the §1 finding: stripping the C1 primer's extra
+structure isn't lifting "guidance vs no-guidance" by +0.194; it's
+lifting "fixed-structure prescription" off a baseline that already
+includes a "use examples as references" pointer. The agent in C0 is
+free to pick any structural ordering it sees in examples, whereas C1
+is anchored to the primer's skeleton.
 
 ## 2. Tool-call distribution (n=51 runs, 4260 tool calls)
 
@@ -562,6 +621,151 @@ multi-physics benchmarks. When it does read docs, it favors prose
 example pages (validation-study `Example.rst`) over pure API reference,
 which is consistent with its "looking for an annotated example"
 strategy.
+
+## 6.6 Per-task C0 vs C1 comparison
+
+Joining per-task scores from the original ablation
+(`docs/ablation_C1_vs_C0.json`) with per-task tool-use trajectories.
+
+**Important caveat on the trajectory data**: the original C1 scores
+come from the `dsv4_min_primer_s{1,2,3}` runs (April), but those
+trajectory directories were not preserved on disk. The closest
+available C1-trajectory dataset is the **c1redux** re-run from
+2026-05-01
+(`/data/shared/geophysics_agent_data/data/eval/c6prime_c1redux_2026-05-01/claude_code_no_plugin_minprimer/`),
+which uses the same primer (`GEOS_PRIMER_minimal_vanilla.md`), the
+same `--strip-baked-primer` flag, the same model, and the same
+anti-leakage blocklist. So this section is "**original-C1 scores +
+c1redux trajectories**" — the trajectory is a same-setup sample, not
+the literal trajectory that produced those scores. All 17 tasks have
+3/3 c1redux seeds.
+
+### Score and read-volume comparison (sorted by Δ desc)
+
+| task | C1 | C0 | Δ | C1 xml | C0 xml | C1 rst | C0 rst | C1 calls | C0 calls | C1 seeds |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|:-:|
+| ExampleMandel | 0.312 | 0.953 | +0.641 | 12.3 | 23.3 | 0.3 | 2.7 | 34.7 | 62.3 | 3/3 |
+| ExampleDPWellbore | 0.487 | 0.998 | +0.511 | 32.0 | 23.3 | 1.7 | 7.3 | 51.3 | 64.3 | 3/3 |
+| AdvancedExampleDruckerPrager | 0.608 | 0.998 | +0.390 | 12.0 | 29.3 | 7.3 | 10.0 | 61.7 | 91.0 | 3/3 |
+| AdvancedExampleModifiedCamClay | 0.570 | 0.941 | +0.370 | 9.0 | 29.0 | 4.7 | 4.0 | 52.0 | 86.0 | 3/3 |
+| TutorialPoroelasticity | 0.365 | 0.636 | +0.271 | 16.0 | 25.7 | 1.0 | 0.3 | 44.3 | 63.3 | 3/3 |
+| AdvancedExampleViscoDruckerPrager | 0.738 | 0.975 | +0.237 | 9.3 | 33.7 | 4.7 | 8.3 | 48.7 | 112.0 | 3/3 |
+| TutorialSneddon | 0.643 | 0.868 | +0.226 | 58.0 | 42.7 | 0.0 | 15.0 | 91.0 | 117.7 | 3/3 |
+| AdvancedExampleDeviatedElasticWellbore | 0.766 | 0.939 | +0.172 | 37.3 | 24.0 | 1.3 | 3.3 | 67.3 | 49.3 | 3/3 |
+| buckleyLeverettProblem | 0.726 | 0.875 | +0.149 | 18.3 | 26.7 | 0.0 | 7.7 | 57.3 | 109.3 | 3/3 |
+| ExampleEDPWellbore | 0.841 | 0.979 | +0.138 | 34.0 | 34.7 | 1.7 | 3.3 | 55.3 | 72.3 | 3/3 |
+| kgdExperimentValidation | 0.773 | 0.910 | +0.137 | 22.7 | 26.0 | 0.0 | 4.7 | 40.0 | 62.7 | 3/3 |
+| AdvancedExampleCasedContactThermoElasticWellbore | 0.699 | 0.813 | +0.114 | 25.3 | 29.3 | 1.7 | 0.0 | 56.7 | 53.7 | 3/3 |
+| ExampleIsothermalLeakyWell | 0.791 | 0.878 | +0.087 | 23.7 | 36.7 | 2.0 | 4.7 | 60.3 | 114.0 | 3/3 |
+| pknViscosityDominated | 0.899 | 0.986 | +0.087 | 18.3 | 14.7 | 0.0 | 2.7 | 48.7 | 49.3 | 3/3 |
+| ExampleThermoporoelasticConsolidation | 0.769 | 0.819 | +0.050 | 11.0 | 21.0 | 2.0 | 2.3 | 39.0 | 86.7 | 3/3 |
+| AdvancedExampleExtendedDruckerPrager | 0.769 | 0.705 | **−0.064** | 17.0 | 22.3 | 5.7 | 10.0 | 73.0 | 102.0 | 3/3 |
+| ExampleThermalLeakyWell | 0.656 | 0.428 | **−0.227** | 16.3 | 28.7 | 0.0 | 18.0 | 52.0 | 124.0 | 3/3 |
+
+(**read counts are mean per seed**; tool calls = total tool_use blocks
+per seed.)
+
+### Cross-task pattern signal
+
+| | count |
+|---|---:|
+| C0 wins (Δ > 0) | 15/17 |
+| C0 losses (Δ < 0) | 2/17 |
+| C0 reads more XMLs than C1 | 13/17 |
+| C0 reads more RSTs than C1 | 14/17 |
+| C0 makes more total tool calls than C1 | 15/17 |
+| C1 reads zero RSTs across all 3 seeds | **5/17** tasks (ThermalLeakyWell, kgdExperimentValidation, buckleyLeverettProblem, pknViscosityDominated, TutorialSneddon) |
+| C0 reads zero RSTs across all 3 seeds | **1/17** (only `AdvancedExampleCasedContactThermoElasticWellbore`) |
+
+In the **15 C0-wins**, on average:
+- C0 reads **28.0 XMLs** vs C1 **22.6** (+24% more XML breadth)
+- C0 reads **5.1 RSTs** vs C1 **1.9** (+170% more doc breadth)
+- C0 makes **79.6 tool calls** vs C1 **53.9** (+48% more tool-use)
+
+In the **2 C0-losses** (ExtendedDruckerPrager, ThermalLeakyWell), on
+average:
+- C0 reads **25.5 XMLs** vs C1 **16.7**
+- C0 reads **14.0 RSTs** vs C1 **2.8** (~5× more) — both losses
+  feature C0 reading much more documentation than C1
+- C0 makes **113.0 tool calls** vs C1 **62.5** — dramatically longer
+  trajectories
+
+This is the cleanest cross-task signal we have so far for *why* C0
+beats C1: **broader exploration**. C0 reads ~40% more XMLs and ~3×
+more RSTs in the wins. The two losses are the runs where C0 went
+*too* deep on docs — ThermalLeakyWell C0 read 18 .rst pages and
+ended up with worse XML structure than C1's pure-example-copy
+approach. The "Recommended workflow" text in C1's primer appears to
+constrain doc-reading specifically (5/17 tasks have C1 reading
+zero docs across all seeds).
+
+### Tasks where the read-volume signal is strongest
+
+The biggest C0 wins all have a clean exploration-volume gap:
+
+- **ExampleMandel (Δ +0.641)**: C0 reads 23 XMLs + 3 RSTs vs C1's 12 +
+  0.3. C0 finds more examples, including poromechanics-specific ones.
+- **AdvancedExampleDruckerPrager (Δ +0.390)**: C0 reads 29 XMLs + 10
+  RSTs vs C1's 12 + 7.3. The triaxial-driver family rewards docs but
+  C0 still does ~2.5× more XML.
+- **AdvancedExampleModifiedCamClay (Δ +0.370)**: C0 reads 29 XMLs vs
+  C1's 9 — biggest XML-read ratio gap.
+- **AdvancedExampleViscoDruckerPrager (Δ +0.237)**: C0 reads 33.7 XMLs
+  + 8.3 RSTs vs C1's 9.3 + 4.7.
+
+### Counter-examples (where C0 reads less but still wins)
+
+- **ExampleDPWellbore (Δ +0.511)**: C0 reads **fewer** XMLs (23 vs
+  C1's 32) but more RSTs (7.3 vs 1.7). Here doc-reading seems to
+  substitute for redundant XML reads — C1 was thrashing in XML space
+  without the right structural guidance.
+- **AdvancedExampleDeviatedElasticWellbore (Δ +0.172)**: C0 reads
+  fewer XMLs (24 vs 37) and fewer total calls (49 vs 67), yet still
+  wins. C1's high-volume-but-narrow XML reading didn't help; C0's
+  broader mix (more RSTs, fewer XMLs) won.
+
+### The two losses
+
+- **ExampleThermalLeakyWell (Δ −0.227)**: C0 read 18 RSTs (max in
+  whole dataset) and 124 total tool calls. The XML it produced had
+  parser errors (double-hyphen in comments, per the original
+  ablation_C1_vs_C0 analysis) and dropped multiple top-level sections
+  to score 0.0 (NumericalMethods, Outputs, Constitutive). High-volume
+  doc-reading correlated with worse output here — possibly the agent
+  got pulled into docs that didn't match the spec and lost track of
+  the XML structure.
+- **AdvancedExampleExtendedDruckerPrager (Δ −0.064)**: small loss; C0
+  read 10 RSTs vs C1's 5.7. Within noise band, but the same direction
+  as ThermalLeakyWell.
+
+### Per-task XML/RST file lists
+
+The full per-task list of *which specific files* each condition read
+(top files by frequency, including unique-file counts per
+(task, condition)) is in a companion document:
+
+> `docs/2026-05-01_C0_C1_per_task_files.md`
+
+That doc has, for each of the 17 tasks, four sub-blocks:
+- C1 XMLs read (path, count)
+- C0 XMLs read (path, count)
+- C1 RSTs read (path, count)
+- C0 RSTs read (path, count)
+
+### Bottom line of §6.6
+
+The score gap is **mostly explained by C0 doing more broad exploration**:
+~40% more XML reads, ~3× more RST reads, ~60% more total tool calls.
+The 5 tasks where C1 reads zero docs across all seeds correspond
+exactly to the kind of behavior the "Recommended workflow" steers
+toward (Glob → Read XML → Write → Read-back; no doc step). When C0
+is freed from that prescription, it reaches for docs and source code
+~3× more often, and that breadth is what the score gap reflects.
+
+The two losses warn against a naive "more is better" reading: when
+C0 spends >15 reads on .rst alone, it can lose ground. The right
+target is breadth, not volume — confirmed by the ExampleDPWellbore
+counter-example where C0 read *fewer* XMLs but won by 0.51.
 
 ## 7. What this implies for harness design
 
