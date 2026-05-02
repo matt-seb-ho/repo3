@@ -50,7 +50,7 @@ except ImportError:
 from openai import OpenAI
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-AGENTS_MD_PATH = REPO_ROOT / "run" / "AGENTS.md"
+AGENTS_MD_PATH = REPO_ROOT / "run" / "AGENTS_old.md"
 
 DEFAULT_SPECS_DIR = Path(
     "/data/shared/geophysics_agent_data/data/eval/experiments_from_mined_specs"
