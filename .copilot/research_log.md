@@ -1535,3 +1535,97 @@ flag the preliminary status.
 -> Evidence (against): .copilot/reviews/RN-005_adversarial_orchestrator-17task.md
 -> Decision: orchestrator architecture works end-to-end on 17/17. Numerical
    claims paused pending P1 fixes + re-run.
+
+
+<a id="LOG-2026-05-02-1"></a>
+## 2026-05-02 — bottleneck-analysis pipeline built
+
+Advisor input: NeurIPS paper needs in-depth analysis of WHERE the
+baseline coding agent fails on the GEOS task, motivating each adapter
+component. Built a 3-stage pipeline that outsources per-trajectory
+diagnosis to DSv4-flash and aggregation to DSv4-pro:
+
+1. `scripts/bottleneck/extract.py` (no LLM): mines `treesim_detail`
+   recursive tree → worst subtrees by impact, missing/extra element
+   types, plus trajectory features (tool counts, file re-reads,
+   xmllint calls, edit churn).
+2. `scripts/bottleneck/llm_per_task.py`: DSv4-flash with structured
+   JSON schema → `failure_category`, `primary_failure_section`,
+   `root_cause`, `trajectory_evidence`, `would_have_helped`. Includes
+   focused GT-vs-gen XML excerpt for the worst section when score < 0.7.
+3. `scripts/bottleneck/aggregate.py`: per-cell category/section
+   distribution + section_failure_weight (`Σ (1 - treesim) by section`)
+   + per-task baseline-vs-best delta. DSv4-pro narrative.
+
+Smoketest on F0_s1 + F4_s1 (34 tasks): pipeline produced specific
+diagnoses ("agent omitted temperature attr from SinglePhaseFVM",
+"agent wrote no <Events> block"), narrative cited section names and
+tied each implication to a category. Cost ~$0.003/task.
+
+Launched full Phase-2 run on F0/F2/F4/F6/SE × 3 seeds = 255 tasks
+(stage 2 in flight at 60+/255 at 10:49Z). Doc:
+`docs/2026-05-02_bottleneck-analysis-pipeline.md`.
+
+Follow-ups queued:
+- Once derisk done (F8, F11 × 3 seeds), score and decide if either
+  joins the scaleup.
+- Launch scaleup (ICL-10 + train-19) per
+  `docs/2026-05-02_autocamp-followup-plan.md`.
+- Run bottleneck pipeline on scaleup results too — same script, just
+  different `--traj-root`/`--eval-root`.
+
+-> DAG: I15 (bottleneck-analysis pipeline)
+-> Evidence: docs/2026-05-02_bottleneck-analysis-pipeline.md
+-> Decision: build the analysis as part of the autocamp follow-up; will
+   feed the NeurIPS submission's "Why does the baseline fail?" section.
+
+
+<a id="LOG-2026-05-02-2"></a>
+## 2026-05-02 — Scaleup complete; ICL-10 reveals adapter value
+
+Followup campaign complete:
+- **Derisk** (F8 + F11 × 3 seeds × test-17): F8=0.911, F11=0.897.
+  Both confirm the test-17 ceiling at ~0.92. F11 underperforms SE
+  by -0.022, suggesting v3's plugin packaging contributes beyond
+  prose+memory.
+- **ICL-10 scaleup** (6 cells × 3 seeds × 10 tasks): F0=0.720 →
+  SE=0.789 (+6.9pp). ICL-10 is harder (-19pp from test-17), and
+  this is where adapter value emerges. F4/F6 σ < 0.01 (40× tighter
+  than F0's 0.08).
+- **train-19 scaleup** (F0 + F6 × 3 seeds × 19 tasks): F0=0.867,
+  F6=0.869. Tied within noise — train-19 doesn't discriminate.
+- **Bottleneck pipeline** run on all 4 task sets. DSv4-flash for
+  per-task classification, DSv4-pro for narrative synthesis.
+  Total ~650 LLM calls, ~$5-7 spend.
+
+**Revised story for paper**: the original test-17-only claim
+("DSv4-flash needs no plugin to reach 0.92") is true *for that
+benchmark distribution*. The plugin's value emerges on harder,
+out-of-distribution tasks where the baseline catastrophically
+fails on 2-3 tasks. SE wins on ICL-10 by avoiding those
+catastrophic failures.
+
+**Bottleneck patterns** (consistent across cells):
+- F0 baseline failures dominate in Solvers (invented solver names,
+  missing newtonTol/temperature attributes), Constitutive (extra
+  dummy materials), Events (entire block omitted), Geometry
+  (coordinate drift).
+- Adapters fix `missing_block` (~50% reduction) but increase
+  `extra_block` and `hallucinated_extras`. Adapter is in
+  "harm-reduction" mode — the perfect-task count does NOT increase.
+- Novel adapter-design idea from train-19 analysis:
+  cross-section consistency hooks (validate
+  `<ElementRegion materialList>` entries match Constitutive names).
+
+Output documents:
+- XN-019 Phase 2, XN-020 combined, XN-021 ICL-10, XN-022 train-19
+- Pipeline doc: 2026-05-02_bottleneck-analysis-pipeline.md
+- Results doc updated: 2026-05-02_autonomous-campaign-results.md
+
+-> DAG: I15 (bottleneck-analysis pipeline)
+-> Evidence: docs/XN-019..022, /data/matt/bn_*/stage3/aggregate.md
+-> Decision: ICL-10 finding overturns the test-17-only "no plugin
+   needed" framing. Paper should cover both findings: (1) on
+   familiar benchmarks the plugin is roughly net-zero; (2) on
+   out-of-distribution tasks the plugin rescues the baseline from
+   catastrophic failures by ~5-7pp aggregate.
