@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,13 @@ from .constants import (
     CONTAINER_VECTOR_DB_DIR,
     REPO_ROOT,
 )
+
+
+def _envflag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _safe_write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -30,12 +38,20 @@ def write_claude_settings(*, result_dir: Path, hook_enabled: bool) -> Path:
     The GEOS_HOOK_DISABLE env var is the runtime kill switch; passing
     hook_enabled=False here omits the hook from settings entirely for
     maximal baseline parity with E17.
+
+    The optional PostToolUse hook (verify_xml_post_write.py) is registered
+    only when the env var ``GEOS_HOOK_POSTTOOLUSE`` is set to a truthy
+    value (1/true/yes/on). Default behaviour reproduces the harness state
+    at commit `autocamp-experiment-state` (no PostToolUse hook); the new
+    behaviour, useful for cross-model runs against `<<TagTag>`-prone
+    backbones, is opt-in via the env var. See
+    docs/2026-05-03_harness-sequencing.md.
     """
     container_stop_hook = CONTAINER_PLUGIN_DIR / "hooks" / "verify_outputs.py"
     container_post_hook = CONTAINER_PLUGIN_DIR / "hooks" / "verify_xml_post_write.py"
     settings: dict[str, Any] = {}
     if hook_enabled:
-        settings["hooks"] = {
+        hooks_cfg: dict[str, Any] = {
             "Stop": [
                 {
                     "matcher": "",
@@ -48,12 +64,15 @@ def write_claude_settings(*, result_dir: Path, hook_enabled: bool) -> Path:
                     ],
                 }
             ],
+        }
+        if _envflag("GEOS_HOOK_POSTTOOLUSE"):
             # Per-write XML parse check. Catches the `<<TagTag>` failure
             # mode within seconds so the agent can fix via Edit instead of
             # discovering it at end_turn and rewriting whole files under
             # the 40-min budget. Cheap (~50ms per check); 15s timeout is
-            # paranoia.
-            "PostToolUse": [
+            # paranoia. Off by default to preserve parity with the
+            # autocamp-experiment-state harness (see harness-sequencing doc).
+            hooks_cfg["PostToolUse"] = [
                 {
                     "matcher": "Write|Edit|MultiEdit",
                     "hooks": [
@@ -64,8 +83,8 @@ def write_claude_settings(*, result_dir: Path, hook_enabled: bool) -> Path:
                         }
                     ],
                 }
-            ],
-        }
+            ]
+        settings["hooks"] = hooks_cfg
     path = result_dir / CONTAINER_SETTINGS_PATH.name
     _safe_write_json(path, settings)
     return path

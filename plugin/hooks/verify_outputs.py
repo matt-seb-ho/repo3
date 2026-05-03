@@ -56,7 +56,14 @@ DOUBLE_BRACKET_CLOSE_RE = re.compile(r"<</([A-Za-z][A-Za-z0-9_]*)\1>")
 
 
 def _doubled_bracket_hint(path: Path) -> str:
-    """Return a one-line sed-style fix hint if the file shows the `<<TagTag>` pattern."""
+    """Return a one-line sed-style fix hint if the file shows the `<<TagTag>` pattern.
+
+    Gated on ``GEOS_HOOK_POSTTOOLUSE``: when unset the hint is suppressed so
+    the parse_error block message is byte-identical to the autocamp
+    experiment-state harness (tag autocamp-experiment-state).
+    """
+    if not _envflag("GEOS_HOOK_POSTTOOLUSE"):
+        return ""
     try:
         content = path.read_text(errors="ignore")
     except OSError:
