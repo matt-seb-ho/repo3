@@ -8,6 +8,7 @@ together — no semantic changes from the original
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,13 @@ def _load(name: str) -> str:
     return (_PROMPTS_DIR / name).read_text()
 
 
+def _envflag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 _RAG_INSTRUCTIONS_PLUGIN = _load("rag_instructions.txt")
 _RAG_INSTRUCTIONS_VANILLA = _load("rag_vanilla.txt")
 _MEMORY_INSTRUCTIONS = _load("memory_instructions.txt")
@@ -27,6 +35,7 @@ _REAL_TOOL_TAIL = _load("real_tool_tail.txt")
 _NATIVE_PLUGIN_PREFIX = _load("native_plugin_prefix.txt")
 _PSEUDO_TOOL_RETRY = _load("pseudo_tool_retry.txt")
 _NO_OUTPUTS_RETRY = _load("no_outputs_retry.txt")
+_MISSING_RAG_DISCLAIMER = _load("missing_rag_disclaimer.txt")
 
 
 def load_agents_md(strip_baked_primer: bool = False) -> str:
@@ -144,6 +153,21 @@ def build_system_prompt(
         _SUPERVISOR_INSTRUCTIONS if supervisor_enabled else ""
     )
 
+    # Optional disclaimer that names the geos-rag MCP tools as unavailable.
+    # Mitigates the minimax-m2.7 pseudo-MCP-tool-call failure mode observed
+    # on the 2026-05-03 cross-model run when only xmllint MCP is registered
+    # (no geos-rag) and minimax hallucinates calls to mcp__geos-rag__*.
+    # Off by default to preserve autocamp-experiment-state parity; opt in
+    # via env GEOS_PROMPT_DISCLAIM_MISSING_RAG=1 when running cross-model.
+    missing_rag_disclaimer = (
+        f"\n\n{_MISSING_RAG_DISCLAIMER}\n"
+        if (
+            _envflag("GEOS_PROMPT_DISCLAIM_MISSING_RAG")
+            and not rag_enabled
+        )
+        else ""
+    )
+
     return (
         f"{agents_context.strip()}{primer_text}{cheatsheet_text}\n\n"
         "---\n"
@@ -151,6 +175,7 @@ def build_system_prompt(
         + memory_instructions
         + supervisor_instructions
         + _REAL_TOOL_TAIL
+        + missing_rag_disclaimer
     ), primer_inlined
 
 
