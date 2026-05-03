@@ -32,7 +32,6 @@ def write_claude_settings(*, result_dir: Path, hook_enabled: bool) -> Path:
     maximal baseline parity with E17.
     """
     container_stop_hook = CONTAINER_PLUGIN_DIR / "hooks" / "verify_outputs.py"
-    container_post_hook = CONTAINER_PLUGIN_DIR / "hooks" / "verify_xml_post_write.py"
     settings: dict[str, Any] = {}
     if hook_enabled:
         settings["hooks"] = {
@@ -44,23 +43,6 @@ def write_claude_settings(*, result_dir: Path, hook_enabled: bool) -> Path:
                             "type": "command",
                             "command": f"python3 {container_stop_hook}",
                             "timeout": 30,
-                        }
-                    ],
-                }
-            ],
-            # Per-write XML parse check. Catches the `<<TagTag>` failure
-            # mode within seconds so the agent can fix via Edit instead of
-            # discovering it at end_turn and rewriting whole files under
-            # the 40-min budget. Cheap (~50ms per check); 15s timeout is
-            # paranoia.
-            "PostToolUse": [
-                {
-                    "matcher": "Write|Edit|MultiEdit",
-                    "hooks": [
-                        {
-                            "type": "command",
-                            "command": f"python3 {container_post_hook}",
-                            "timeout": 15,
                         }
                     ],
                 }

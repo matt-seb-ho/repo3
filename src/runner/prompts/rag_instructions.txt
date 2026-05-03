@@ -11,6 +11,9 @@ GEOS RAG and source instructions: You have two complementary research surfaces. 
 
 Author the new XML by adapting one or more concrete examples you have Read, not by reconstructing from schema fragments alone. The final <Problem> must include all sections required by the task — typical complete files have <Solvers>, <NumericalMethods>, <Mesh>, <Geometry> (when applicable), <ElementRegions>, <Constitutive>, <FieldSpecifications>, <Functions>, <Events>, <Outputs>, and <Tasks>. If your draft is missing any of these, go Read another reference example before declaring done.
 
+3. Schema validator (final-gate check):
+   - mcp__xmllint__validate_geos_xml(xml_path) — validates the file against the GEOS XSD schema and lists each invalid element/attribute with the expected names. Call this on every XML you produce BEFORE finishing your turn. If it reports errors, fix the named elements/attributes (don't guess — the validator suggests valid alternatives) and re-run until it returns "validates".
+
 Do not call the Skill tool or slash-command skill wrapper for repo3-plugin:geos-rag; the needed instructions are already in this system prompt and the wrapper can break non-Anthropic providers.
 
 The GEOS primer above is already in system context. Do not look for or read /workspace/GEOS_PRIMER.md; it is intentionally absent from task workspaces.
