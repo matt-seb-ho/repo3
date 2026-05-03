@@ -211,34 +211,54 @@ def build_inline_user_message(
     return "\n\n---\n\n".join(parts)
 
 
-def write_mcp_config(workspace: Path) -> Path:
-    """Write OpenHands MCP config so OH loads our geos-rag MCP server.
+def write_mcp_config(
+    workspace: Path,
+    *,
+    enable_rag: bool = True,
+    enable_xmllint: bool = False,
+) -> Path:
+    """Write OpenHands MCP config so OH loads our MCP servers.
 
     OpenHands reads MCP config from `<PERSISTENCE_DIR>/mcp.json`; we set
     `OPENHANDS_PERSISTENCE_DIR=/workspace/.openhands` per task, so the
     file lands at `<workspace>/.openhands/mcp.json`. Inside the
     container, the plugin is mounted at `/plugins/repo3` and the vector
     DB at `/data/shared/geophysics_agent_data/data/vector_db`.
+
+    enable_rag: register the geos-rag MCP server (R factor in CC parlance).
+    enable_xmllint: register the xmllint MCP validator (X factor).
     """
     mcp_dir = workspace / ".openhands"
     mcp_dir.mkdir(parents=True, exist_ok=True)
-    cfg = {
-        "mcpServers": {
-            "geos-rag": {
-                "command": "uv",
-                "args": [
-                    "run",
-                    "--script",
-                    "/plugins/repo3/scripts/geos_rag_mcp.py",
-                ],
-                "env": {
-                    "GEOS_VECTOR_DB_DIR":
-                        "/data/shared/geophysics_agent_data/data/vector_db",
-                    "CLAUDE_PLUGIN_ROOT": "/plugins/repo3",
-                },
+    servers: dict = {}
+    if enable_rag:
+        servers["geos-rag"] = {
+            "command": "uv",
+            "args": [
+                "run",
+                "--script",
+                "/plugins/repo3/scripts/geos_rag_mcp.py",
+            ],
+            "env": {
+                "GEOS_VECTOR_DB_DIR":
+                    "/data/shared/geophysics_agent_data/data/vector_db",
+                "CLAUDE_PLUGIN_ROOT": "/plugins/repo3",
             },
-        },
-    }
+        }
+    if enable_xmllint:
+        servers["xmllint"] = {
+            "command": "uv",
+            "args": [
+                "run",
+                "--script",
+                "/plugins/repo3/scripts/xmllint_mcp.py",
+            ],
+            "env": {
+                "CLAUDE_PLUGIN_ROOT": "/plugins/repo3",
+                "XMLLINT_SCHEMA_PATH": "/geos_lib/src/coreComponents/schema/schema.xsd",
+            },
+        }
+    cfg = {"mcpServers": servers}
     path = mcp_dir / "mcp.json"
     path.write_text(json.dumps(cfg, indent=2))
     return path
@@ -311,11 +331,14 @@ def build_docker_cmd(
         "-v", f"{filtered_geos}:/geos_lib:ro",
         "-v", f"{task_dir}:/workspace:rw",
     ]
-    if plugin_dir is not None and vector_db_dir is not None:
-        cmd += [
-            "-v", f"{plugin_dir}:/plugins/repo3:ro",
-            "-v", f"{vector_db_dir}:/data/shared/geophysics_agent_data/data/vector_db:ro",
-        ]
+    # Mount plugin/ if any MCP server needs it. RAG additionally needs the
+    # vector DB; xmllint needs only the plugin/ scripts dir.
+    if plugin_dir is not None:
+        cmd += ["-v", f"{plugin_dir}:/plugins/repo3:ro"]
+        if vector_db_dir is not None:
+            cmd += [
+                "-v", f"{vector_db_dir}:/data/shared/geophysics_agent_data/data/vector_db:ro",
+            ]
     cmd += [
         # OpenHands persistence (settings, conversations) — keep per-task
         # so runs are isolated.
@@ -581,6 +604,7 @@ def run_one_task(
     primer_fingerprints: tuple[str, ...] = PRIMER_FINGERPRINTS,
     self_refine_max_retries: int = 0,
     extra_llm_envs: dict[str, str] | None = None,
+    enable_xmllint_mcp: bool = False,
 ) -> dict[str, Any]:
     started_iso = datetime.now(timezone.utc).isoformat()
     started_t = time.time()
@@ -599,8 +623,17 @@ def run_one_task(
         task_dir, primer_text, instructions,
     )
     plugin_enabled = plugin_dir is not None and vector_db_dir is not None
-    if plugin_enabled:
-        write_mcp_config(task_dir)
+    # Need the plugin mount whenever we register any MCP server backed by
+    # plugin/scripts/*.py, including xmllint_mcp.py.
+    needs_plugin_mount = plugin_enabled or enable_xmllint_mcp
+    if needs_plugin_mount and plugin_dir is None:
+        plugin_dir = REPO_ROOT / "plugin"
+    if plugin_enabled or enable_xmllint_mcp:
+        write_mcp_config(
+            task_dir,
+            enable_rag=plugin_enabled,
+            enable_xmllint=enable_xmllint_mcp,
+        )
     inline_user_message = build_inline_user_message(
         primer_text, instructions,
         plugin_enabled=plugin_enabled,
@@ -847,6 +880,9 @@ def main() -> int:
     p.add_argument("--docker-image", default=DEFAULT_DOCKER_IMAGE)
     p.add_argument("--plugin", action="store_true",
                    help="Enable repo3 geos-rag MCP plugin (mounts plugin/, vector DB, writes mcp.json)")
+    p.add_argument("--xmllint-mcp", action="store_true",
+                   help="Register the xmllint validator MCP (X factor). Mounts plugin/ even "
+                        "when --plugin is off so the xmllint_mcp.py script is reachable.")
     p.add_argument("--plugin-dir", type=Path, default=REPO_ROOT / "plugin")
     p.add_argument("--vector-db-dir", type=Path,
                    default=Path("/data/shared/geophysics_agent_data/data/vector_db"))
@@ -943,6 +979,7 @@ def main() -> int:
         primer_fingerprints=primer_fingerprints,
         self_refine_max_retries=args.self_refine,
         extra_llm_envs=extra_llm_envs,
+        enable_xmllint_mcp=args.xmllint_mcp,
     )
     if args.workers <= 1:
         for t in tasks:
