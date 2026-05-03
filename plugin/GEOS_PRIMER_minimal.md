@@ -26,4 +26,4 @@ GEOS (Geomechanics and EOS Simulator) is an open-source multiphysics simulator. 
 ```
 
 ## Additional MCP search tools
-Find a similar existing example via RAG (`mcp__geos-rag__search_navigator` for topics; `mcp__geos-rag__search_technical` for XML examples; `mcp__geos-rag__search_schema` for authoritative attribute names/types).
+Find a similar existing example via RAG (`mcp__geos-rag__search_navigator` for topics; `mcp__geos-rag__search_technical` for XML examples; `mcp__geos-rag__search_schema` for authoritative attribute names/types). Validate every XML you produce against the GEOS XSD with `mcp__xmllint__validate_geos_xml` before finishing — it lists any invalid elements/attributes alongside the expected ones.
