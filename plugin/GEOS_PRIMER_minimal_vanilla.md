@@ -24,11 +24,3 @@ GEOS (Geomechanics and EOS Simulator) is an open-source multiphysics simulator. 
   <Tasks>...</Tasks>            <!-- optional -->
 </Problem>
 ```
-
-## Recommended workflow
-1. Find a similar existing example using `Glob` / `Grep` / `Read` against `/geos_lib/inputFiles/`. Search by physics keyword (e.g. `Glob` for `*Wellbore*.xml`; `Grep` for `<SinglePhasePoromechanics`); use `Read` on the full example XMLs.
-2. `Read` the full example XML from `/geos_lib/inputFiles/...` and adapt it to the task's spec.
-3. Write the adapted XML to `/workspace/inputs/<name>.xml`.
-4. Read each file back to verify structure matches the spec before finishing.
-
-That's it.
