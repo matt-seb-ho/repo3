@@ -106,6 +106,129 @@ than the same task in Mode A medium F4 (0.614). This is suggestive
 that *being denied* an answer didn't hurt; the act of formulating the
 question may have been enough to unstick the agent.
 
+## Diagnostic: how much was actually omitted, and could the agent find it elsewhere?
+
+You asked the right question. Three follow-up checks, run after the main results came in:
+
+### A. Volume of dropped specification
+
+|  | char drop | values dropped | by tier |
+|---|---:|---:|---|
+| **Medium** (8 tasks total) | 39676 → 31549 (**−20.5 %**) | **89** | T1=27, T2=62, T3=0 |
+| **Hard**   (8 tasks total) | 39676 → 19620 (**−50.5 %**) | **184** | T1=26, T2=53, **T3=105** |
+
+So Hard removes about half the spec by character count and twice as many
+parameter-level values as Medium, *and* it removes the entire T3 layer
+(densities, viscosities, porosities, permeabilities, Biot coefficients,
+standard BCs). Medium is "infer the numerics", Hard is "infer the
+material physics too". Per-task Hard drop ratios range 0.32 (DPWellbore)
+to 0.60 (TutorialPoroelasticity).
+
+### B. Where the agent looks when the spec is relaxed
+
+Total `Read` / `Glob` / `Grep` calls aimed at `/geos_lib/inputFiles/`
+(other GEOS example XMLs) and `/geos_lib/src/` across all 8 tasks per
+cell:
+
+| cell | inputFiles reads | src reads | RAG calls (if any) |
+|---|---:|---:|---:|
+| modeA_medium / F0 | 404 | 23 | 0 |
+| modeA_medium / F4 | 142 | 49 | 3 |
+| modeA_hard   / F0 | 322 | 37 | 0 |
+| modeA_hard   / F4 | 161 | 56 | 9 |
+| modeB_medium / F0_int | 148 | 62 | 22 |
+| modeB_medium / F4_int | 165 | 20 | 14 |
+| modeB_hard   / F0_int | 208 | 31 | 23 |
+| modeB_hard   / F4_int | 247 | 88 | 6 |
+
+The agents are not idle. They're reading dozens to hundreds of GEOS
+input-file examples per task. The task is "find the right analogous
+benchmark and copy what it does."
+
+### C. Are the dropped values *actually findable* in those examples?
+
+Stress-tested on **ExampleMandel/Hard**, the most aggressive single
+case (5 T1 + 14 T2 + 12 T3 values dropped, 54 % char drop). For each
+T2/T3 dropped value, I greped the rest of `/geos_lib/inputFiles/`
+(excluding the Mandel ground-truth files, which are blocked anyway) for
+the numeric token:
+
+| dropped T3 value | found in N other example XMLs |
+|---|---:|
+| Solid density 0.0 kg/m³ | 668 |
+| Solid bulk modulus 66.667 MPa | **0** |
+| Solid shear modulus 40.0 MPa | 41 |
+| Reference porosity 0.375 | 8 |
+| Grain bulk modulus 1.0e27 Pa | 42 |
+| Permeability 1.0e-12 m² | 51 |
+| Fluid base density 1000 kg/m³ | 187 |
+| Fluid viscosity 0.001 Pa·s | 210 |
+| Fluid compressibility 4.4e-10 Pa⁻¹ | 6 |
+| Fluid reference pressure 0.0 Pa | 668 |
+
+**15 of 26 dropped T2+T3 values for Mandel/Hard are recoverable by
+literal token grep against other examples on disk.** Most "domain-
+inferable" values aren't actually domain-inferable in this benchmark
+— they are *retrieval-inferable* from analogous example XMLs that
+GEOS ships in the source tree. Only 1 of 12 T3 values (bulk modulus
+66.667 MPa, a slightly unusual rounded value) had zero hits.
+
+This is the structural reason for the 1/32 consultation rate. The
+"difficulty ramp" in this study isn't actually putting the agent in a
+position where it *must* ask a human — it just puts it in a position
+where it has to do a longer Read/Glob hunt. The on-disk GEOS examples
+are functioning as an alternate oracle.
+
+### D. Tool description and prompt visibility
+
+The agent does know it has the option:
+
+- The MCP `tools/list` advertises `consult_supervisor` with this
+  docstring (verified end-to-end via a manual MCP probe):
+
+  > Ask a clarifying question to the human researcher. Use this when
+  > the simulation specification you received does not contain a
+  > value or detail you need to make a faithful XML, and you cannot
+  > reasonably infer it from GEOS conventions or domain knowledge.
+  > Each call costs the researcher's time, so prefer to infer when
+  > you can. The researcher will answer concisely using only
+  > information in their original specification.
+
+- The system prompt addendum (`_SUPERVISOR_INSTRUCTIONS` in
+  `src/runner/prompts/__init__.py`) says the same thing in slightly
+  different words.
+
+- And we saw in events.jsonl that agents *did* call
+  `supervisor_stats` early — confirming they noticed the MCP and
+  introspected it before deciding not to consult.
+
+So awareness is not the issue. The two priors that probably are:
+
+1. **"Prefer to infer" framing.** Both the docstring and the system-
+   prompt addendum tell the agent that consulting "costs the
+   researcher's time." That's a real-world prior we wanted to
+   instill — but here it tilts the agent strongly toward inference.
+2. **Inference is too easy because the on-disk examples cover the
+   answers.** Even at Hard, ~58 % of removed numeric values are
+   one `grep` away. Why ask when you can read?
+
+### Implications for the next pass
+
+If the goal is to actually study consultation behaviour, the
+difficulty ramp needs to either:
+- **Block analogous examples**, not just the GT for the current task.
+  e.g., for ExampleMandel block all `*Poroelastic*` / `*Mandel*`
+  inputs across the whole tree.
+- **Drop values that don't have analogs** (synthetic values or values
+  outside the standard library — would require expert input).
+- Or relax the framing: tell the agent "the researcher would rather
+  be asked once than read the wrong default."
+
+A complementary variant worth running: same setup, but with
+`prefer to infer` removed from the docstring and addendum (replaced
+with "ask whenever you would otherwise pick a default"). That gives
+us an "asks-on-demand" upper bound to bracket the 1/32 we observed.
+
 ## What the lack of consultation tells us
 
 This is the workshop-relevant finding. We gave a coding agent
