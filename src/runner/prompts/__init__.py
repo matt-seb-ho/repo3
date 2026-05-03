@@ -77,6 +77,22 @@ def build_task_prompt(task_instructions: str) -> str:
     )
 
 
+_SUPERVISOR_INSTRUCTIONS = (
+    "\n## Asking the human researcher\n"
+    "Some details of the simulation specification you received are "
+    "intentionally unspecified. A simulated human researcher is "
+    "available via the `mcp__geos-supervisor__consult_supervisor` "
+    "tool. Use it when a value or design decision you need is missing "
+    "from the brief AND you cannot reasonably infer it from GEOS "
+    "conventions, GEOS example simulations, or standard geophysics "
+    "practice. Each call costs the researcher's time, so prefer to "
+    "infer when you can. Ask short, specific, single-question queries; "
+    "batch related parameters into one question when possible. The "
+    "researcher will answer concisely using only the original "
+    "specification.\n"
+)
+
+
 def build_system_prompt(
     agents_context: str,
     geos_primer_path: Path,
@@ -86,6 +102,7 @@ def build_system_prompt(
     memory_prompt_hint: bool = True,
     plugin_enabled: bool = True,
     rag_enabled: bool | None = None,
+    supervisor_enabled: bool = False,
 ) -> tuple[str, bool]:
     if rag_enabled is None:
         rag_enabled = plugin_enabled
@@ -123,11 +140,16 @@ def build_system_prompt(
         if (plugin_enabled and memory_enabled and memory_prompt_hint) else ""
     )
 
+    supervisor_instructions = (
+        _SUPERVISOR_INSTRUCTIONS if supervisor_enabled else ""
+    )
+
     return (
         f"{agents_context.strip()}{primer_text}{cheatsheet_text}\n\n"
         "---\n"
         + rag_instructions
         + memory_instructions
+        + supervisor_instructions
         + _REAL_TOOL_TAIL
     ), primer_inlined
 

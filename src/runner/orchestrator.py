@@ -85,6 +85,7 @@ def run_task(
     tmp_geos_parent: Path | None = None,
     geos_lib_dir: Path | None = None,
     extra_blocked_xml_basenames: list[str] | None = None,
+    supervisor_spec_dir: Path | None = None,
 ) -> dict:
     geos_root = (geos_lib_dir if geos_lib_dir is not None else GEOS_LIB_DIR).resolve()
     agent = AGENTS[agent_key]
@@ -125,6 +126,7 @@ def run_task(
         memory_prompt_hint=bool(agent.get("memory_prompt_hint", True)),
         plugin_enabled=_plugin_on,
         rag_enabled=_rag_on,
+        supervisor_enabled=bool(agent.get("supervisor_enabled", False)),
     )
     # If we're delivering the cheatsheet via the workspace (instead of system prompt),
     # drop the file into the result_dir so Docker bind-mounts it as /workspace/CHEATSHEET.md.
@@ -203,6 +205,25 @@ def run_task(
                     if cleanup_filtered_copy:
                         cleanup_filtered_geos_copy(filtered_geos)
                     raise
+            # Supervisor channel for the interactive-autonomy study. The
+            # full original spec for this task lives at
+            # <supervisor_spec_dir>/<task>/instructions.txt and is mounted
+            # read-only at /supervisor/spec.md inside the container. The
+            # MCP server reads it; the agent has no reason to look at it.
+            supervisor_enabled = bool(agent.get("supervisor_enabled", False))
+            supervisor_host_path: Path | None = None
+            if supervisor_enabled:
+                if supervisor_spec_dir is None:
+                    raise ValueError(
+                        "supervisor_enabled=True requires --supervisor-spec-dir"
+                    )
+                supervisor_host_path = (
+                    supervisor_spec_dir / task_name / "instructions.txt"
+                ).resolve()
+                if not supervisor_host_path.exists():
+                    raise FileNotFoundError(
+                        f"supervisor spec missing: {supervisor_host_path}"
+                    )
             mcp_config_path = write_claude_mcp_config(
                 result_dir=result_dir,
                 blocked_xml_filenames=blocked_xml_filenames,
@@ -211,6 +232,10 @@ def run_task(
                 enable_noop=bool(agent.get("noop_mcp_enabled", False)),
                 enable_xmllint=bool(agent.get("xmllint_mcp_enabled", False)),
                 enable_rag=_rag_on,
+                enable_supervisor=supervisor_enabled,
+                supervisor_task_name=task_name,
+                supervisor_model=str(agent.get("supervisor_model", "deepseek-v4-flash")),
+                supervisor_base_url=str(agent.get("supervisor_base_url", "https://api.deepseek.com/v1")),
                 memory_variant=str(agent.get("memory_variant", "lexical")),
                 memory_items_host_path=(
                     Path(agent["memory_items_path"]).resolve()
@@ -247,6 +272,8 @@ def run_task(
             system_prompt=system_prompt,
             prompt=native_prompt,
             enable_plugin=enable_plugin,
+            supervisor_spec_host_path=supervisor_host_path
+            if enable_plugin else None,
         )
         docker_env = build_claude_native_env(
             blocked_xml_filenames=blocked_xml_filenames,
@@ -374,6 +401,8 @@ def run_task(
                     system_prompt=system_prompt,
                     prompt=retry_prompt,
                     enable_plugin=enable_plugin,
+                    supervisor_spec_host_path=supervisor_host_path
+                    if enable_plugin else None,
                 )
                 _safe_write_json(
                     result_dir / "status.json",

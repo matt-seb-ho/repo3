@@ -120,6 +120,14 @@ def main() -> None:
              f"(default: {EXPERIMENTS_DIR})",
     )
     parser.add_argument(
+        "--supervisor-spec-dir",
+        type=Path,
+        default=None,
+        help="Directory containing per-task FULL original specs for the "
+             "simulated-supervisor MCP server. Required when running an "
+             "agent variant with supervisor_enabled=True.",
+    )
+    parser.add_argument(
         "--agents", "-a",
         nargs="+",
         choices=list(AGENTS.keys()),
@@ -490,6 +498,7 @@ def main() -> None:
             tmp_geos_parent=args.tmp_geos_parent,
             geos_lib_dir=geos_lib_resolved,
             extra_blocked_xml_basenames=extra_blocked_xml_basenames,
+            supervisor_spec_dir=args.supervisor_spec_dir,
         ): (task, agent)
         for task, agent in combos
     }

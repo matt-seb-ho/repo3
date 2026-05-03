@@ -125,6 +125,7 @@ def build_claude_native_command(
     system_prompt: str,
     prompt: str,
     enable_plugin: bool = True,
+    supervisor_spec_host_path: Path | None = None,
 ) -> list[str]:
     cmd = [
         "docker", "run", "--rm",
@@ -139,6 +140,12 @@ def build_claude_native_command(
             "-v", f"{plugin_dir}:/plugins/repo3:ro",
             "-v", f"{vector_db_dir}:{CONTAINER_VECTOR_DB_DIR}:rw",
         ]
+    if supervisor_spec_host_path is not None:
+        # Mounted at a fixed container path consumed by supervisor_mcp.py.
+        cmd += [
+            "-v",
+            f"{supervisor_spec_host_path}:/supervisor/spec.md:ro",
+        ]
     cmd += [
         "-e", "HOME=/workspace/.claude_home",
         "-e", "XDG_CONFIG_HOME=/workspace/.claude_home/.config",
@@ -148,6 +155,7 @@ def build_claude_native_command(
         "-e", "ANTHROPIC_API_KEY",
         "-e", "OPENROUTER_API_KEY",
         "-e", "OPENAI_API_KEY",
+        "-e", "DEEPSEEK_API_KEY",
         # Forwards for plugin/hooks/verify_outputs.py knobs. Absent vars
         # are fine — hook has sane defaults.
         "-e", "GEOS_HOOK_DISABLE",

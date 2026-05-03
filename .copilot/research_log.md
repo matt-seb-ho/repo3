@@ -1629,3 +1629,35 @@ Output documents:
    familiar benchmarks the plugin is roughly net-zero; (2) on
    out-of-distribution tasks the plugin rescues the baseline from
    catastrophic failures by ~5-7pp aggregate.
+
+<a id="LOG-2026-05-04-1"></a>
+## LOG-2026-05-04-1 — Interactive-autonomy + difficulty-ramp study (overnight)
+
+→ DAG: new branch (workshop / autonomous-discovery angle)
+→ Evidence: docs/2026-05-04_interactive-autonomy-results.md, docs/2026-05-03_interactive-autonomy-design.md
+→ Decision: workshop-paper-scoped study; not merged into main NeurIPS battery
+
+Set up a difficulty ramp (Medium/Hard relaxed specs via DSv4-pro
+rewrite, hygiene-checked) and an interactive mode (simulated DSv4-flash
+supervisor exposed as `mcp__geos-supervisor__consult_supervisor`).
+Ran 8 tasks × 2 configs (F0 vanilla, F4 AUTOCAMP-best) × 2 difficulties
+× 2 modes × 1 seed = 64 runs. Total wall ~3 hours, cost <$5.
+
+Headline finding: **the agent consulted the supervisor 1 time across
+32 interactive runs.** Even with the tool in its tool list and the
+system prompt advertising it ("use it when a value is missing AND you
+cannot reasonably infer it"), it preferred to infer from on-disk GEOS
+examples on 31/32 trials. The single call returned an empty answer due
+to a max_tokens budget bug in the supervisor (patched post-hoc).
+
+TreeSim: difficulty drops scores ~9-13 pp from the test-17 Easy anchor;
+F4 retains a small advantage over F0 (~+0.5-5 pp). Mode B F0 medium
+shows a +10.7 pp jump over Mode A F0 medium that is almost certainly a
+plugin-loaded confound (PAC-1 saw similar effects from uncalled tools
+adding tool-list shape) rather than a supervisor benefit.
+
+Next steps if pushing for the workshop submission:
+- Second seed per cell
+- Variant prompt that pushes asking more aggressively
+- A no-confound F0 baseline (supervisor without plugin)
+

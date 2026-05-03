@@ -99,6 +99,11 @@ def write_claude_mcp_config(
     enable_noop: bool = False,
     enable_xmllint: bool = False,
     enable_rag: bool = True,
+    enable_supervisor: bool = False,
+    supervisor_spec_container_path: str = "/supervisor/spec.md",
+    supervisor_task_name: str = "",
+    supervisor_model: str = "deepseek-v4-flash",
+    supervisor_base_url: str = "https://api.deepseek.com/v1",
     memory_variant: str = "lexical",  # "lexical" (memory_mcp.py) or "embed" (memory_mcp_embed.py)
     memory_items_host_path: Path | None = None,
     memory_embed_index_host_path: Path | None = None,
@@ -190,6 +195,35 @@ def write_claude_mcp_config(
             ],
             "env": {
                 "CLAUDE_PLUGIN_ROOT": str(CONTAINER_PLUGIN_DIR),
+            },
+        }
+    if enable_supervisor:
+        # Simulated-human supervisor for the interactive-autonomy study.
+        # The MCP reads the task's full original specification from a path
+        # that lives OUTSIDE /workspace; the path is passed via the per-
+        # server env block here, not via the docker `-e` list, so it does
+        # not appear in the agent-visible environment. The agent's tools
+        # can still in principle Read this path; we rely on the agent
+        # not having any reason to look. Telemetry of supervisor calls is
+        # written to /workspace/supervisor_calls.jsonl for audit.
+        servers["geos-supervisor"] = {
+            "type": "stdio",
+            "command": "uv",
+            "args": [
+                "run",
+                "--script",
+                str(CONTAINER_PLUGIN_DIR / "scripts" / "supervisor_mcp.py"),
+            ],
+            "env": {
+                "CLAUDE_PLUGIN_ROOT": str(CONTAINER_PLUGIN_DIR),
+                "SUPERVISOR_SPEC_PATH": supervisor_spec_container_path,
+                "SUPERVISOR_TASK_NAME": supervisor_task_name,
+                "SUPERVISOR_LLM_MODEL": supervisor_model,
+                "SUPERVISOR_LLM_BASE_URL": supervisor_base_url,
+                # API key forwarded from the docker process env (see
+                # docker_cmd.py — DEEPSEEK_API_KEY is added to -e list when
+                # any agent has supervisor_enabled).
+                "DEEPSEEK_API_KEY": os.environ.get("DEEPSEEK_API_KEY", ""),
             },
         }
     if enable_xmllint:
