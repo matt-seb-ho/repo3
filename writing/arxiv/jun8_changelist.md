@@ -125,3 +125,17 @@ Source: `gpt_feedback.md` and `claude_feedback.md`. **All edits below were appli
 - Claude 3 (Expert 1 file-level 0.812→0.689 in the longer session) — you said no explanation needed; left as-is.
 - Claude 9, 10, 12; GPT's "ten canonical sections includes Functions, omits Tasks" — left as-is.
 
+---
+
+## Pass 2 follow-up (2026-06-08, per your questions)
+
+- **Self-evolution appendix REMOVED.** Deleted the new `app:selfevolve` section and `tab:se-configs` table (C2 above) and the one-sentence pointer to it in §4.3. Self-evolution is back to the previous (vague) treatment while you keep working on it. The self-evolution *equation* (Eq. 2, `eq:selfevolve`) and the SE/SE-prose method paragraphs are unchanged.
+- **SE verb harmonized to "matches or outperforms"** in BOTH abstract and intro:
+  - Abstract: "yielding the best held-out GEOS performance and **outperforming**…" → "yielding the **highest held-out GEOS mean** and **matching or outperforming** the strongest hand-designed configuration."
+  - Intro finding (3): "**matches** the best hand-designed configuration" → "**matches or outperforms** the best hand-designed configuration."
+- **Abstract "a harder held set" → "a harder held-out set"** (flagged item #3, now done).
+- **Synced jun8 abstract to arxiv:** fixed the stray `10\% \ relative` and "standard deviation across the seed" and the redundant `$\sim 36\times$` in `jun8_v1.tex` (these were previously fixed only in `arxiv_v1.tex`). Abstracts now identical across the two files.
+- **Still open / flagged:** abstract "executable configurations / complete deck / practical operators" (#2) and Figure 2 "simulation outputs / post-process artifacts" (#4) — untouched, awaiting your call.
+
+Both files recompile clean (31 pp, 0 undefined refs).
+
