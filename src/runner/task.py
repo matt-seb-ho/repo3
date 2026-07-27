@@ -210,13 +210,21 @@ def run_claude_native_task(
         state["workspace_inputs_present"] = has_workspace_inputs
     flush_status()
 
-    openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "") or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
-    openrouter_cost = compute_openrouter_cost(events_path, openrouter_api_key)
-    if openrouter_cost is not None:
-        with lock:
-            state["openrouter_cost_usd"] = openrouter_cost
-        _safe_write_json(status_path, state)
-        patch_events_openrouter_cost(events_path, openrouter_cost)
+    # Best-effort cost enrichment, run after `status` above is already final.
+    # A network hiccup here (e.g. a slow OpenRouter API read) must never be
+    # able to turn an already-successful task into a reported "error" —
+    # cost.py catches the exception types it knows about, but this task's
+    # actual result must survive regardless of what this optional step does.
+    try:
+        openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "") or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+        openrouter_cost = compute_openrouter_cost(events_path, openrouter_api_key)
+        if openrouter_cost is not None:
+            with lock:
+                state["openrouter_cost_usd"] = openrouter_cost
+            _safe_write_json(status_path, state)
+            patch_events_openrouter_cost(events_path, openrouter_cost)
+    except Exception:
+        pass
 
     result: dict[str, Any] = {
         "task": task_name,
