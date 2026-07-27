@@ -28,7 +28,6 @@ AGENTS: dict[str, dict] = {
         "model": DEFAULT_CLAUDE_MODEL,
         "requires_rag": True,
         "plugin_enabled": True,
-        "xmllint_mcp_enabled": True,
         "stop_hook_enabled": False,
     },
     # xmllint ablation: CC + RAG + hook with the xmllint-aware primer
