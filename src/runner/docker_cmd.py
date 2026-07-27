@@ -13,10 +13,18 @@ from typing import Any
 
 from .constants import (
     CONTAINER_GEOS_PRIMER_PATH,
+    CONTAINER_GEOSX_CONDA_LIB_DIR,
+    CONTAINER_GEOSX_EXECUTABLE,
+    CONTAINER_GEOSX_INSTALL_DIR,
+    CONTAINER_GEOSX_TPL_DIR,
     CONTAINER_MCP_CONFIG_PATH,
     CONTAINER_PLUGIN_DIR,
     CONTAINER_SETTINGS_PATH,
     CONTAINER_VECTOR_DB_DIR,
+    DEFAULT_GEOSX_CONDA_LIB_DIR,
+    DEFAULT_GEOSX_INSTALL_DIR,
+    DEFAULT_GEOSX_TPL_ROOT,
+    DEFAULT_GEOSX_TPL_SUBDIRS,
     DOCKER_IMAGE,
     NATIVE_CLAUDE_DISALLOWED_TOOLS,
     NATIVE_CLAUDE_TOOLS,
@@ -139,7 +147,18 @@ def build_claude_native_command(
         cmd += [
             "-v", f"{plugin_dir}:/plugins/repo3:ro",
             "-v", f"{vector_db_dir}:{CONTAINER_VECTOR_DB_DIR}:rw",
+            # geosx --validate-input runtime (geosx-validate-input branch):
+            # the built binary + its shared libs live outside the /geos_lib
+            # source mount, so they get their own read-only mounts. See
+            # constants.py for why there are three separate host roots.
+            "-v", f"{DEFAULT_GEOSX_INSTALL_DIR}:{CONTAINER_GEOSX_INSTALL_DIR}:ro",
+            "-v", f"{DEFAULT_GEOSX_CONDA_LIB_DIR}:{CONTAINER_GEOSX_CONDA_LIB_DIR}:ro",
         ]
+        for subdir in DEFAULT_GEOSX_TPL_SUBDIRS:
+            cmd += [
+                "-v",
+                f"{DEFAULT_GEOSX_TPL_ROOT / subdir}:{CONTAINER_GEOSX_TPL_DIR / subdir}:ro",
+            ]
     if supervisor_spec_host_path is not None:
         # Mounted at a fixed container path consumed by supervisor_mcp.py.
         cmd += [
@@ -172,6 +191,18 @@ def build_claude_native_command(
             # CLAUDE_PLUGIN_ROOT is used by the plugin's hooks.json to locate
             # the hook script (python3 ${CLAUDE_PLUGIN_ROOT}/hooks/verify_outputs.py).
             "-e", f"CLAUDE_PLUGIN_ROOT={CONTAINER_PLUGIN_DIR}",
+            # geosx --validate-input runtime, consumed by verify_outputs.py's
+            # _geosx_validate() and geosx_validate_mcp's validate_geos_xml().
+            "-e", f"GEOSX_EXECUTABLE={CONTAINER_GEOSX_EXECUTABLE}",
+            "-e", (
+                "LD_LIBRARY_PATH="
+                f"{CONTAINER_GEOSX_INSTALL_DIR}/lib:"
+                + ":".join(
+                    str(CONTAINER_GEOSX_TPL_DIR / subdir / "lib")
+                    for subdir in DEFAULT_GEOSX_TPL_SUBDIRS
+                )
+                + f":{CONTAINER_GEOSX_CONDA_LIB_DIR}"
+            ),
         ]
     cmd += [
         DOCKER_IMAGE,

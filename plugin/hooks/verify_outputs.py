@@ -3,8 +3,10 @@
 
 Fires when the Claude Code agent ends its turn. Checks that
 ``/workspace/inputs/`` contains at least one ``.xml`` file and that every XML
-file parses. Optionally also schema-validates against the GEOS XSD via
-``xmllint``. If any check fails, emits ``decision: "block"`` on stdout so
+file parses. Optionally also validates the deck by actually loading it with
+``geosx --validate-input`` (geosx-validate-input branch — this used to shell
+out to ``xmllint --schema``; see docs/GEOSX_VALIDATE.md for why and what
+changed). If any check fails, emits ``decision: "block"`` on stdout so
 Claude Code re-enters the agent with the reason as feedback; otherwise allows
 the stop.
 
@@ -19,13 +21,24 @@ Environment knobs:
     GEOS_HOOK_SELF_REFLECT If ``1``/``true``/``yes``, after the XML passes the
                            static checks, also block once with a self-review
                            prompt (off by default — see XN-010 section 6.3).
-    GEOS_HOOK_XMLLINT      If ``1``/``true``/``yes``, run ``xmllint --schema``
-                           against each XML after the parse check; block with
-                           the schema errors as feedback if validation fails.
-                           Off by default; counts toward the same retry
-                           budget as the parse-error block.
-    GEOS_HOOK_SCHEMA_PATH  Path to schema.xsd inside the container. Defaults to
-                           ``/geos_lib/src/coreComponents/schema/schema.xsd``.
+    GEOS_HOOK_XMLLINT      If ``1``/``true``/``yes``, run
+                           ``geosx -i <entry> --validate-input`` against each
+                           deck entry file (see _entry_files) after the parse
+                           check; block with the loading errors as feedback
+                           if validation fails. Off by default; counts toward
+                           the same retry budget as the parse-error block.
+                           Name kept from the xmllint-era flag for parity
+                           with every launch_*.sh script that already
+                           exports it — only the implementation changed.
+    GEOS_HOOK_SCHEMA_PATH  Unused on this branch (was the xmllint schema.xsd
+                           path). Left defined for interface parity; ignored.
+    GEOSX_EXECUTABLE       Path to the geosx binary inside the container.
+                           Defaults to ``/opt/geosx-install/bin/geosx``,
+                           matching the mount docker_cmd.py sets up.
+    GEOSX_VALIDATE_TIMEOUT Per-entry-file timeout in seconds for the
+                           validate-input subprocess. Default 120 — geosx's
+                           loading phase is much heavier than an xmllint
+                           parse (it builds the mesh and data repository).
 
 Input JSON is read from stdin; see Claude Code Stop-hook schema. We only read
 ``stop_hook_active`` to short-circuit nested stops; the rest we do not need.
@@ -38,13 +51,18 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT_SCHEMA_PATH = Path("/geos_lib/src/coreComponents/schema/schema.xsd")
-MAX_ERRORS_PER_FILE = 8
+DEFAULT_GEOSX_EXECUTABLE = "/opt/geosx-install/bin/geosx"
+DEFAULT_GEOSX_TIMEOUT = 120
 MAX_FILES_REPORTED = 4
+# geosx prints a clean "***** Exception / LOCATION / Error cause / Message"
+# banner before a multi-frame stack trace on a genuine loading failure.
+# Keep the banner, drop the noisy stack trace.
+GEOSX_ERROR_BANNER_RE = re.compile(r"(\*{5}\s*Exception.*?)(?=\*{5}\s*StackTrace|\Z)", re.DOTALL)
 
 # Recurring failure mode on OpenRouter-routed open models (gemma, qwen, etc.):
 # the model emits doubled-bracket-with-doubled-name tags like `<<ProblemProblem>`
@@ -197,73 +215,110 @@ def _first_parse_error(paths: list[Path]) -> tuple[Path, str] | None:
     return None
 
 
-def _xmllint_validate(
+def _included_targets(path: Path) -> set[Path]:
+    """Resolve every <Included><File name="..."/></Included> target of path."""
+    targets: set[Path] = set()
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError):
+        return targets
+    for included in root.iter("Included"):
+        for file_el in included.findall("File"):
+            name = file_el.get("name")
+            if not name:
+                continue
+            targets.add((path.parent / name).resolve())
+    return targets
+
+
+def _entry_files(paths: list[Path]) -> list[Path]:
+    """Return the deck entry file(s): XML files nothing else <Included>s.
+
+    geosx needs the top-level file (the one that <Included>s the rest),
+    not each fragment individually — unlike xmllint --schema, which validates
+    any XML file against the XSD in isolation. A base.xml on its own is
+    missing Mesh/Events and will correctly fail --validate-input even when
+    it is perfectly correct as an include fragment.
+    """
+    all_included: set[Path] = set()
+    for p in paths:
+        all_included |= _included_targets(p)
+    entries = [p for p in paths if p.resolve() not in all_included]
+    # Fallback for the (unexpected) case every file looks included, e.g. a
+    # circular/self <Included>: validating everything beats validating nothing.
+    return entries or list(paths)
+
+
+def _extract_geosx_error(output: str) -> str:
+    match = GEOSX_ERROR_BANNER_RE.search(output)
+    if match:
+        return match.group(1).strip()
+    # No banner (e.g. a raw segfault/abort outside GEOS's own exception
+    # handling) — fall back to the tail of combined stdout+stderr.
+    lines = [line for line in output.splitlines() if line.strip()]
+    return "\n".join(lines[-15:])
+
+
+def _geosx_validate(
     paths: list[Path],
-    schema_path: Path,
     inputs_dir: Path,
 ) -> str | None:
-    """Schema-validate every XML; return formatted error feedback or None.
+    """Load-validate the deck; return formatted error feedback or None.
 
-    Runs ``xmllint --schema <schema> --noout <file>`` per file; xmllint
-    exits 0 when the file validates and non-zero with one error per line
-    on failure. We collect errors, summarise, and return a feedback
-    string suitable for the agent. Returns None when every file validates
-    or when xmllint is unavailable (we don't penalise the agent for our
-    own infra gap).
+    Runs ``geosx -i <entry> --validate-input`` per deck entry file (see
+    _entry_files); geosx exits 0 and prints "Input validation completed"
+    when the deck loads, non-zero with a "***** Exception" banner on
+    failure (missing/broken cross-references, unparseable mesh, etc).
+    Returns None when every entry validates or when geosx is unavailable
+    (we don't penalise the agent for our own infra gap).
+
+    Caveat vs. the old xmllint path: this catches structural/reference
+    failures (missing blocks, dangling names) via geosx actually trying to
+    build the ProblemManager's data repository, but does NOT strictly
+    enforce the XSD (unknown or misspelled attributes that GEOS's parser
+    tolerates silently will NOT be flagged here, where xmllint --schema
+    would have caught them).
     """
-    if not schema_path.exists():
+    executable = os.environ.get("GEOSX_EXECUTABLE", DEFAULT_GEOSX_EXECUTABLE)
+    if not Path(executable).exists():
         return None
-    if shutil.which("xmllint") is None:
-        return None
-    files_with_errors: list[tuple[Path, list[str]]] = []
-    for p in paths:
+    timeout = int(os.environ.get("GEOSX_VALIDATE_TIMEOUT", DEFAULT_GEOSX_TIMEOUT) or DEFAULT_GEOSX_TIMEOUT)
+
+    files_with_errors: list[tuple[Path, str]] = []
+    for entry in _entry_files(paths):
+        scratch = Path(tempfile.mkdtemp(prefix="geosx_validate_"))
         try:
             res = subprocess.run(
-                ["xmllint", "--schema", str(schema_path), "--noout", str(p)],
+                [executable, "-i", str(entry), "--validate-input", "-o", str(scratch)],
+                cwd=scratch,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=timeout,
             )
         except (subprocess.TimeoutExpired, OSError):
             continue
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
         if res.returncode == 0:
             continue
-        # xmllint prints errors to stderr, one per line. The summary line
-        # ``<file> fails to validate`` follows; drop it.
-        err_lines = []
-        for line in res.stderr.splitlines():
-            line = line.strip()
-            if not line: continue
-            if line.endswith("fails to validate"): continue
-            if line.endswith("validates"): continue
-            # Strip the absolute file prefix the agent already knows
-            try:
-                rel = p.relative_to(inputs_dir)
-                line = line.replace(f"{p}:", f"{rel}:")
-            except (ValueError, AttributeError):
-                pass
-            err_lines.append(line)
-        if err_lines:
-            files_with_errors.append((p, err_lines[:MAX_ERRORS_PER_FILE]))
+        detail = _extract_geosx_error(res.stdout + res.stderr)
+        try:
+            rel = entry.relative_to(inputs_dir)
+        except ValueError:
+            rel = entry
+        files_with_errors.append((rel, detail))
+
     if not files_with_errors:
         return None
 
-    # Build feedback. Report up to MAX_FILES_REPORTED files; reference
-    # the rest by count if there are more.
     parts = []
-    for p, errs in files_with_errors[:MAX_FILES_REPORTED]:
-        try:
-            rel = p.relative_to(inputs_dir)
-        except (ValueError, AttributeError):
-            rel = p
-        joined = "\n  ".join(errs)
-        parts.append(f"- {rel}:\n  {joined}")
+    for rel, detail in files_with_errors[:MAX_FILES_REPORTED]:
+        parts.append(f"- {rel}:\n  {detail}")
     extra = len(files_with_errors) - MAX_FILES_REPORTED
     summary = "\n".join(parts)
     if extra > 0:
-        summary += f"\n- ...plus {extra} more file(s) with schema errors."
+        summary += f"\n- ...plus {extra} more entry file(s) failing --validate-input."
     return summary
-    return None
 
 
 def main() -> None:
@@ -329,9 +384,7 @@ def main() -> None:
         )
 
     if _envflag("GEOS_HOOK_XMLLINT"):
-        schema_override = os.environ.get("GEOS_HOOK_SCHEMA_PATH")
-        schema_path = Path(schema_override) if schema_override else DEFAULT_SCHEMA_PATH
-        feedback = _xmllint_validate(xml_files, schema_path, inputs_dir)
+        feedback = _geosx_validate(xml_files, inputs_dir)
         if feedback is not None:
             retries = _bump_counter(counter)
             if retries > max_retries:
@@ -340,17 +393,22 @@ def main() -> None:
                     reason_category="schema_error_max_retries",
                     retries_so_far=retries,
                 )
+            executable = os.environ.get("GEOSX_EXECUTABLE", DEFAULT_GEOSX_EXECUTABLE)
             _block(
-                "Stop blocked by verify_outputs hook: one or more XML files "
-                f"under {inputs_dir} fail GEOS schema validation. "
-                f"Schema: {schema_path}. Errors:\n\n"
+                "Stop blocked by verify_outputs hook: one or more deck entry "
+                f"files under {inputs_dir} fail to load with "
+                f"`geosx --validate-input`. Errors:\n\n"
                 f"{feedback}\n\n"
-                "Fix the offending element/attribute names against the schema "
-                "(do NOT guess again — `xmllint` lists expected alternatives "
-                "for unexpected-element errors and required attribute names "
-                "for missing-attribute errors). Re-validate locally with\n"
-                f"  xmllint --schema {schema_path} --noout <file>.xml\n"
-                "before ending your turn.",
+                "This means GEOS itself could not build the problem from your "
+                "XML: a referenced name (region, material, set, function, "
+                "task) does not resolve, or a required block/mesh is missing "
+                "or malformed. Fix the reported cause, then re-validate "
+                "locally with\n"
+                f"  {executable} -i <entry_file>.xml --validate-input\n"
+                "before ending your turn. Note: this only catches structural/"
+                "reference errors caught while loading the deck — it does "
+                "not check attribute names/types against the schema the way "
+                "xmllint did.",
                 inputs_dir=inputs_dir,
                 reason_category="schema_error",
                 retries_so_far=retries,

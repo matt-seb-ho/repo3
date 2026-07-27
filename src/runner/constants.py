@@ -27,6 +27,23 @@ DOCKER_IMAGE = "geos-eval"
 DEFAULT_PLUGIN_DIR = REPO_ROOT / "plugin"  # .claude-plugin/plugin.json lives under plugin/
 
 DEFAULT_VECTOR_DB_DIR = Path("/data/shared/geophysics_agent_data/data/vector_db")
+
+# geosx --validate-input support (geosx-validate-input branch).
+# A built GEOS binary + its runtime shared libraries, spread across the main
+# install prefix, several thirdPartyLibs install prefixes, and (fragile —
+# see docs/GEOSX_VALIDATE.md) one host conda env that happened to supply
+# libz.so.1 at build time. None of this lives under DEFAULT_GEOS_LIB_DIR
+# (that mount is source-only, no build/ or install/ dir), so it must be
+# mounted separately from the existing /geos_lib mount.
+DEFAULT_GEOSX_INSTALL_DIR = Path("/data/shared/GEOS/GEOS/install-ds-serv6-conda-release")
+DEFAULT_GEOSX_TPL_ROOT = Path("/data/shared/GEOS/thirdPartyLibs/install-ds-serv6-conda-release")
+DEFAULT_GEOSX_TPL_SUBDIRS = ("hdf5", "suitesparse", "superlu_dist", "vtk")
+DEFAULT_GEOSX_CONDA_LIB_DIR = Path("/home/brian/miniconda3/envs/geos-build/lib")
+
+CONTAINER_GEOSX_INSTALL_DIR = Path("/opt/geosx-install")
+CONTAINER_GEOSX_TPL_DIR = Path("/opt/geosx-tpl")
+CONTAINER_GEOSX_CONDA_LIB_DIR = Path("/opt/geosx-conda-lib")
+CONTAINER_GEOSX_EXECUTABLE = CONTAINER_GEOSX_INSTALL_DIR / "bin" / "geosx"
 DEFAULT_GEOS_PRIMER_PATH = Path(
     "/home/brianliu/geophys-embodied-agent-framework/modules/profile/GEOS_PRIMER.md"
 )

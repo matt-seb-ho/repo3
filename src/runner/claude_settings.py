@@ -8,10 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from .constants import (
+    CONTAINER_GEOSX_CONDA_LIB_DIR,
+    CONTAINER_GEOSX_EXECUTABLE,
+    CONTAINER_GEOSX_INSTALL_DIR,
+    CONTAINER_GEOSX_TPL_DIR,
     CONTAINER_MCP_CONFIG_PATH,
     CONTAINER_PLUGIN_DIR,
     CONTAINER_SETTINGS_PATH,
     CONTAINER_VECTOR_DB_DIR,
+    DEFAULT_GEOSX_TPL_SUBDIRS,
     REPO_ROOT,
 )
 
@@ -239,9 +244,21 @@ def write_claude_mcp_config(
             ],
             "env": {
                 "CLAUDE_PLUGIN_ROOT": str(CONTAINER_PLUGIN_DIR),
-                # Fixed inside the container — the schema lives next to the
-                # filtered GEOS source mount.
-                "XMLLINT_SCHEMA_PATH": "/geos_lib/src/coreComponents/schema/schema.xsd",
+                # geosx-validate-input branch: this server now runs
+                # `geosx --validate-input` (see xmllint_mcp.py's docstring),
+                # not xmllint/XMLLINT_SCHEMA_PATH. MCP stdio servers get
+                # their own explicit env, so the geosx mounts from
+                # docker_cmd.py must be forwarded here too, not just
+                # assumed inherited.
+                "GEOSX_EXECUTABLE": str(CONTAINER_GEOSX_EXECUTABLE),
+                "LD_LIBRARY_PATH": (
+                    f"{CONTAINER_GEOSX_INSTALL_DIR}/lib:"
+                    + ":".join(
+                        str(CONTAINER_GEOSX_TPL_DIR / subdir / "lib")
+                        for subdir in DEFAULT_GEOSX_TPL_SUBDIRS
+                    )
+                    + f":{CONTAINER_GEOSX_CONDA_LIB_DIR}"
+                ),
             },
         }
     mcp_config_path = result_dir / CONTAINER_MCP_CONFIG_PATH.name
