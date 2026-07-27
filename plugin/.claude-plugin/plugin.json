@@ -22,6 +22,18 @@
       "env": {
         "GEOS_VECTOR_DB_DIR": "/data/shared/geophysics_agent_data/data/vector_db"
       }
+    },
+    "xmllint": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--script",
+        "${CLAUDE_PLUGIN_ROOT}/scripts/xmllint_mcp.py"
+      ],
+      "env": {
+        "XMLLINT_SCHEMA_PATH": "/opt/geos-source/src/coreComponents/schema/schema.xsd",
+        "XMLLINT_WORKSPACE_DIR": "/workspace"
+      }
     }
   }
 }

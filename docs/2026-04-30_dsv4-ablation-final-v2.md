@@ -1,25 +1,25 @@
 # DSv4-flash ablation v2: 9 cells × 3 seeds, with xmllint split + prefix probe
 
-*2026-04-30 — paper-ready findings. Supersedes `2026-04-30_dsv4-ablation-final.md`
-in scope (added C6/C7/C8/C9) but does not contradict any of its findings.*
+_2026-04-30 — paper-ready findings. Supersedes `2026-04-30_dsv4-ablation-final.md`
+in scope (added C6/C7/C8/C9) but does not contradict any of its findings._
 
 ## TL;DR for the paper
 
 Build-up ablation on DSv4-flash, 17 v2 tasks, 3 seeds each. Each
 component is added one at a time relative to a documented baseline:
 
-| Cell | Components added | mean treesim | σ |
-|---|---|---:|---:|
-| C1 | (PRIOR) min primer (workflow text), no plugin, no SR | 0.671 | 0.014 |
-| C0 | strip workflow text from primer (= abs-min primer) | 0.865 | 0.067 |
-| C2 | + load plugin (`--settings` + `--mcp-config` + plugin-dir-mount, RAG MCP off) + parse-check Stop hook | 0.913 | 0.015 |
-| C9 | C2 minus the user-prompt plugin-prefix | 0.917 | 0.016 |
-| C6 | C2 + xmllint Stop-hook validation (`xmllint --schema`) | **0.921** | 0.006 |
-| C7 | C6 + voluntary xmllint MCP tool | 0.914 | 0.008 |
-| C5 | C2 + DSv4-distilled M1-u memory cheatsheet | 0.912 | 0.003 |
-| C8 | C7 + RAG | 0.878 | 0.008 |
-| C4 | min primer + parse-check + RAG (no xmllint, no memory) | 0.874 | 0.005 |
-| C3 | min primer + RAG (no SR, no xmllint) | 0.847 | 0.035 |
+| Cell | Components added                                                                                      | mean treesim |     σ |
+| ---- | ----------------------------------------------------------------------------------------------------- | -----------: | ----: |
+| C1   | (PRIOR) min primer (workflow text), no plugin, no SR                                                  |        0.671 | 0.014 |
+| C0   | strip workflow text from primer (= abs-min primer)                                                    |        0.865 | 0.067 |
+| C2   | + load plugin (`--settings` + `--mcp-config` + plugin-dir-mount, RAG MCP off) + parse-check Stop hook |        0.913 | 0.015 |
+| C9   | C2 minus the user-prompt plugin-prefix                                                                |        0.917 | 0.016 |
+| C6   | C2 + xmllint Stop-hook validation (`xmllint --schema`)                                                |    **0.921** | 0.006 |
+| C7   | C6 + voluntary xmllint MCP tool                                                                       |        0.914 | 0.008 |
+| C5   | C2 + DSv4-distilled M1-u memory cheatsheet                                                            |        0.912 | 0.003 |
+| C8   | C7 + RAG                                                                                              |        0.878 | 0.008 |
+| C4   | min primer + parse-check + RAG (no xmllint, no memory)                                                |        0.874 | 0.005 |
+| C3   | min primer + RAG (no SR, no xmllint)                                                                  |        0.847 | 0.035 |
 
 Headline: **on DSv4-flash, only two components produce meaningful
 positive lift: stripping the workflow-step primer (+0.19) and loading
@@ -31,17 +31,17 @@ negative.
 
 The 7 paired comparisons that decompose the harness:
 
-| Pair | What's added | Δ | big-swing tasks |
-|---|---|---:|---|
-| C1 → C0 | strip workflow text from primer | **+0.194** | 8 (1 deg) |
-| C0 → C2 | load plugin (settings + mcp-config + dir mount) | **+0.049** | 5 (0 deg) |
-| C2 → C9 | remove user-prompt plugin-prefix | +0.004 | 0 |
-| C2 → C6 | add xmllint Stop-hook | +0.008 | 0 |
-| C6 → C7 | add voluntary xmllint MCP tool | −0.007 | 0 |
-| C2 → C5 | add DSv4-distilled memory cheatsheet | −0.001 | 0 |
-| C0 → C3 | add RAG (no SR, no xmllint) | −0.018 | 4 (2 deg) |
-| C2 → C4 | add RAG to parse-check SR | −0.039 | 3 (3 deg) |
-| C7 → C8 | add RAG to full xmllint stack | **−0.036** | 2 (2 deg) |
+| Pair    | What's added                                    |          Δ | big-swing tasks |
+| ------- | ----------------------------------------------- | ---------: | --------------- |
+| C1 → C0 | strip workflow text from primer                 | **+0.194** | 8 (1 deg)       |
+| C0 → C2 | load plugin (settings + mcp-config + dir mount) | **+0.049** | 5 (0 deg)       |
+| C2 → C9 | remove user-prompt plugin-prefix                |     +0.004 | 0               |
+| C2 → C6 | add xmllint Stop-hook                           |     +0.008 | 0               |
+| C6 → C7 | add voluntary xmllint MCP tool                  |     −0.007 | 0               |
+| C2 → C5 | add DSv4-distilled memory cheatsheet            |     −0.001 | 0               |
+| C0 → C3 | add RAG (no SR, no xmllint)                     |     −0.018 | 4 (2 deg)       |
+| C2 → C4 | add RAG to parse-check SR                       |     −0.039 | 3 (3 deg)       |
+| C7 → C8 | add RAG to full xmllint stack                   | **−0.036** | 2 (2 deg)       |
 
 (Δ is paired-mean-of-per-task-means with `cond_b - cond_a`.)
 
@@ -56,7 +56,7 @@ baseline (C1) used `GEOS_PRIMER_minimal_vanilla.md` which contains a
 section + an XML skeleton. Replacing this with the 5-line
 `GEOS_PRIMER_absolute_min.md` (just file locations) gives +0.19 pp.
 
-The smaller primer is *less directive* and the agent uses its own
+The smaller primer is _less directive_ and the agent uses its own
 better default exploration strategy. The structured workflow steps
 were actively constraining DSv4 to a worse sequencing.
 
@@ -79,11 +79,13 @@ removing the user-prompt plugin-prefix (C9) doesn't undo the lift
 (Δ = +0.004 vs C2).
 
 So +0.049 comes from:
+
 - the agent seeing a `mcp_config` file with empty `mcpServers`
 - a `settings.json` file with a Stop hook config
 - a `/plugins/repo3/` mount the agent never reads
 
 We don't have a clean explanation. Hypotheses:
+
 - Claude Code's runtime initializes differently when `--settings`
   is passed (subtle scheduler change?)
 - The `mcp_config` flag presence affects token-budget allocation
@@ -92,6 +94,7 @@ We don't have a clean explanation. Hypotheses:
 
 This is the **most interesting unresolved finding** for the paper.
 Worth a follow-up isolation campaign:
+
 - C0 + just `--settings`, no mcp-config, no plugin-dir
 - C0 + just `--mcp-config` (empty), no settings, no plugin-dir
 - C0 + just `--plugin-dir`, no settings, no mcp-config
@@ -118,6 +121,7 @@ gain + variance reduction. Marginal.
 **C6 → C7 = −0.007**. Adding the voluntary
 `mcp__xmllint__validate_geos_xml` tool lets the agent self-validate
 during authoring, BUT:
+
 - 0 hook blocks at end (down from 12% under C6)
 - +6 turns/task (30.1 → 36.3)
 - No quality lift
@@ -127,16 +131,16 @@ rather than waiting for the Stop hook to block. Same end quality,
 slightly worse efficiency.
 
 For paper: **the value is in the validation feedback loop, not in
-*when* it happens.** Hook-on-Stop is sufficient; the agent doesn't
+_when_ it happens.** Hook-on-Stop is sufficient; the agent doesn't
 need to call validation itself.
 
 ### 5. RAG — consistently harmful (3 paired tests)
 
-| RAG-add pair | Δ | n_deg / n_big-swing |
-|---|---:|---|
-| C0 → C3 (no SR baseline) | −0.018 | 2/4 |
-| C2 → C4 (parse-check SR) | −0.039 | 3/3 |
-| C7 → C8 (full xmllint stack) | −0.036 | 2/2 |
+| RAG-add pair                 |      Δ | n_deg / n_big-swing |
+| ---------------------------- | -----: | ------------------- |
+| C0 → C3 (no SR baseline)     | −0.018 | 2/4                 |
+| C2 → C4 (parse-check SR)     | −0.039 | 3/3                 |
+| C7 → C8 (full xmllint stack) | −0.036 | 2/2                 |
 
 Mechanism: in every big-swing degradation, the analyzer reports
 "RAG replaces filesystem search". The agent that has RAG made fewer
@@ -174,18 +178,18 @@ plugin-prefix from the production harness.** Pure cost win.
 DeepSeek's published pricing ($0.27/M input cache-miss, $0.07/M cache-hit,
 $1.10/M output). `q/$` = treesim per real-USD; higher is better.
 
-| Cell | treesim | σ | wall | turns | $real | q/$ | Setup |
-|---|---:|---:|---:|---:|---:|---:|---|
-| C1 | 0.671 | 0.014 | 359s | 31.6 | $0.100 | 6.7 | (PRIOR) min primer, no plugin |
-| C0 | 0.865 | 0.067 | 367s | 26.3 | $0.084 | 10.2 | abs-min primer, no plugin |
-| **C2** | 0.913 | 0.015 | 326s | 33.0 | $0.094 | 9.7 | min primer + plugin (no RAG), parse-SR |
-| C3 | 0.847 | 0.035 | 290s | 34.4 | $0.097 | 8.7 | min primer + RAG, no SR |
-| C4 | 0.874 | 0.005 | **276s** | 33.6 | $0.094 | 9.3 | min primer + RAG + parse-SR |
-| C5 | 0.912 | **0.003** | 420s | 31.3 | $0.097 | 9.4 | C2 + DSv4-memory |
-| **C6** | **0.921** | 0.006 | 381s | 30.1 | $0.089 | 10.4 | min primer + xmllint hook |
-| C7 | 0.914 | 0.008 | 335s | 36.3 | $0.099 | 9.2 | C6 + xmllint MCP tool |
-| C8 | 0.878 | 0.008 | 288s | 34.0 | $0.089 | 9.9 | C7 + RAG (≈ old best_dsv4) |
-| **C9** | 0.917 | 0.016 | 359s | 28.4 | **$0.082** | **11.2** | C2 minus plugin-prefix |
+| Cell   |   treesim |         σ |     wall | turns |      $real |      q/$ | Setup                                  |
+| ------ | --------: | --------: | -------: | ----: | ---------: | -------: | -------------------------------------- |
+| C1     |     0.671 |     0.014 |     359s |  31.6 |     $0.100 |      6.7 | (PRIOR) min primer, no plugin          |
+| C0     |     0.865 |     0.067 |     367s |  26.3 |     $0.084 |     10.2 | abs-min primer, no plugin              |
+| **C2** |     0.913 |     0.015 |     326s |  33.0 |     $0.094 |      9.7 | min primer + plugin (no RAG), parse-SR |
+| C3     |     0.847 |     0.035 |     290s |  34.4 |     $0.097 |      8.7 | min primer + RAG, no SR                |
+| C4     |     0.874 |     0.005 | **276s** |  33.6 |     $0.094 |      9.3 | min primer + RAG + parse-SR            |
+| C5     |     0.912 | **0.003** |     420s |  31.3 |     $0.097 |      9.4 | C2 + DSv4-memory                       |
+| **C6** | **0.921** |     0.006 |     381s |  30.1 |     $0.089 |     10.4 | min primer + xmllint hook              |
+| C7     |     0.914 |     0.008 |     335s |  36.3 |     $0.099 |      9.2 | C6 + xmllint MCP tool                  |
+| C8     |     0.878 |     0.008 |     288s |  34.0 |     $0.089 |      9.9 | C7 + RAG (≈ old best_dsv4)             |
+| **C9** |     0.917 |     0.016 |     359s |  28.4 | **$0.082** | **11.2** | C2 minus plugin-prefix                 |
 
 ### Pareto-optimal cells
 
@@ -284,5 +288,5 @@ task-runs.
 
 ---
 
-*Last updated: 2026-04-30 09:30 UTC. C6/C7/C8/C9 just landed; this
-doc supersedes the v1 final from 02:32.*
+_Last updated: 2026-04-30 09:30 UTC. C6/C7/C8/C9 just landed; this
+doc supersedes the v1 final from 02:32._

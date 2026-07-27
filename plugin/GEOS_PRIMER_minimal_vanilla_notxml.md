@@ -24,5 +24,3 @@ GEOS (Geomechanics and EOS Simulator) is an open-source multiphysics simulator. 
   <Tasks>...</Tasks>            <!-- optional -->
 </Problem>
 ```
-
-Validate every XML you produce against the GEOS XSD with `mcp__xmllint__validate_geos_xml` before finishing — it lists any invalid elements/attributes alongside the expected ones.

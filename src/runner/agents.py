@@ -29,6 +29,7 @@ AGENTS: dict[str, dict] = {
         "requires_rag": True,
         "plugin_enabled": True,
         "xmllint_mcp_enabled": True,
+        "stop_hook_enabled": False,
     },
     # xmllint ablation: CC + RAG + hook with the xmllint-aware primer
     # variant inlined. Caller must pass `--strip-baked-primer
