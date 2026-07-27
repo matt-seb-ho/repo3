@@ -101,45 +101,78 @@ of solver-side name references GEOS itself defers past the load phase —
 which `judge_geos.py`'s `bad_attribute_value` category would still flag as
 wrong, geosx just won't tell the agent about it mid-trajectory.
 
-## Docker mount is untested — flagging clearly
+## Docker mount — now verified end-to-end, with one real bug found and fixed
 
 The GEOS tree repo3 actually mounts into the sandbox
 (`/data/shared/geophysics_agent_data/data/GEOS`, `DEFAULT_GEOS_LIB_DIR`) is
 **source-only** — no `build*`/`install*` dir, no `geosx` binary. The built
 binary lives in a completely separate checkout
-(`/data/shared/GEOS/GEOS/install-ds-serv6-conda-release`), and `ldd` on it
-resolves 126 shared libraries across **five** distinct host roots:
+(originally `/data/shared/GEOS/GEOS/install-ds-serv6-conda-release`), and
+`ldd` on it resolves 126 shared libraries across **five** distinct host
+roots:
 
 1. `GEOS/install-ds-serv6-conda-release/lib`
 2. `thirdPartyLibs/install-ds-serv6-conda-release/hdf5/lib`
 3. `thirdPartyLibs/install-ds-serv6-conda-release/suitesparse/lib`
 4. `thirdPartyLibs/install-ds-serv6-conda-release/superlu_dist/lib`
 5. `thirdPartyLibs/install-ds-serv6-conda-release/vtk/lib`
-6. `/home/brian/miniconda3/envs/geos-build/lib` (supplies `libz.so.1`) — this
-   one is **not** a proper install prefix, just an incidental host conda env
-   that happened to be active at build time. It's the most fragile part of
-   this setup: it's not portable to another machine and isn't really "GEOS's"
-   directory to depend on.
+6. `/home/brian/miniconda3/envs/geos-build/lib` (supplies `libz.so.1`) — not
+   a proper install prefix, just an incidental host conda env that happened
+   to be active at build time. Still the most fragile part of this setup:
+   not portable to another machine, and not really "GEOS's" directory to
+   depend on.
 
-`docker_cmd.py` now mounts roots 1-5 read-only and sets `LD_LIBRARY_PATH`
-accordingly whenever the plugin is enabled. **I could not test any of this
-inside the actual `geos-eval` Docker image** — the `brian` user on this host
-isn't in the `docker` group and there's no passwordless sudo, so every
-`docker run`/`docker images` call in this session returned a permission
-error. Everything above (the exact flag, the entry-file logic, the error-
-banner extraction, the dangling-reference catch) was verified by importing
-`verify_outputs.py`'s functions directly and running the real `geosx` binary
-on the host, outside any container. What's specifically unverified:
+**Docker group access landed later in this branch's life, and testing inside
+the real container surfaced a genuine bug**: mounting roots 1-5 straight from
+their original `/data/shared/GEOS/...` locations produced `geosx binary not
+present` inside the container, even though `docker_cmd.py`'s mounts and
+`LD_LIBRARY_PATH` were all correct and the paths were completely readable
+from the host shell. Root cause, confirmed with minimal repros: **this host's
+Docker daemon cannot see `/data` at all as a bind-mount source** — any direct
+mount of a `/data/...` path (not just these ones; `/data/brian`,
+`/data/shared/geophysics_agent_data`, all of it) comes up as an empty,
+root-owned directory inside the container. A symlink under `/home` pointing
+back into `/data` doesn't help either — it's a hard mount-namespace-level
+constraint of this daemon, not a permissions issue. (This also silently
+affects `/tmp` — confirmed the same way — so don't use `/tmp` for anything
+you intend to bind-mount on this host either.)
 
+This is exactly why `create_runtime_vector_db_copy()` and the `/geos_lib`
+filtered-GEOS copy already work: both are Python-side `shutil.copytree`
+operations that land under `result_dir`, which lives under
+`/home/brian/repo3/data/eval/...` — a path the daemon *can* see — before
+docker ever touches them. Roots 1-5 above needed the identical treatment.
+Fix: one-time `cp -a` of all five into `/home/brian/.geosx_docker_runtime/`
+(~605MB, seconds to copy), and `DEFAULT_GEOSX_INSTALL_DIR`/
+`DEFAULT_GEOSX_TPL_ROOT` in `constants.py` now point there instead of the
+original `/data/shared/GEOS/...` locations. `DEFAULT_GEOSX_CONDA_LIB_DIR` was
+already under `/home/brian`, so it never needed moving.
+
+**Verified end-to-end after the fix**: `claude_code_repo3_plugin_xmllint_all`
+/ `buckleyLeverettProblem` on `deepseek/deepseek-v4-flash` via OpenRouter, a
+real `docker run` with real API calls — the agent hit a genuine XML
+well-formedness bug in its own draft (a `--` inside an XML comment), the
+**parse-error check** (not geosx-specific, but confirms the Stop hook runs
+end-to-end) blocked and the agent fixed it, and the task completed
+successfully (`status: success`, 696s, 65 tool calls, `xmllint` MCP server
+connected). Confirmed via `docker run ... sh -c "ls /opt/geosx-install/bin/geosx"`
+that the geosx binary and libraries are now actually reachable inside the
+container.
+
+Still open (lower priority, not blocking):
 - Whether the `geos-eval` image's base OS/glibc is ABI-compatible with this
-  conda-built binary at all (mounting libraries doesn't fix an incompatible
-  libc).
-- Whether `--user <uid>:<gid>` (docker_cmd.py always runs unprivileged)
-  can read/exec everything under the five mounted roots.
+  conda-built binary in every respect — the binary runs and exits 0/1
+  correctly, so basic ABI compat is confirmed, but no exhaustive check was
+  done.
 - Actual wall-clock cost of `--validate-input` per task at eval scale (my
-  timing was on one small single-region deck; harder held-out tasks with
-  bigger meshes will take longer than the ~2-3s I measured, and I set the
-  per-entry timeout to 120s as a guess, not a measurement).
+  timing was on one small single-region deck outside the container, ~2-3s;
+  the 120s per-entry timeout is still a guess, not a measurement, for
+  harder held-out tasks with bigger meshes).
+- A run where the agent's draft actually trips the geosx-specific check
+  (dangling reference, unknown attribute) rather than the plain parse
+  check, to see the exact end-to-end block/repair loop in the real
+  container — the smoke test above didn't happen to produce that failure
+  mode on its first attempt.
 
 Once `docker` group access is sorted out, the right next step is a `--dry-run`
 + one real `claude_code_repo3_plugin_xmllint_hook`-style task run to confirm

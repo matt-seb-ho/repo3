@@ -35,8 +35,21 @@ DEFAULT_VECTOR_DB_DIR = Path("/data/shared/geophysics_agent_data/data/vector_db"
 # libz.so.1 at build time. None of this lives under DEFAULT_GEOS_LIB_DIR
 # (that mount is source-only, no build/ or install/ dir), so it must be
 # mounted separately from the existing /geos_lib mount.
-DEFAULT_GEOSX_INSTALL_DIR = Path("/data/shared/GEOS/GEOS/install-ds-serv6-conda-release")
-DEFAULT_GEOSX_TPL_ROOT = Path("/data/shared/GEOS/thirdPartyLibs/install-ds-serv6-conda-release")
+#
+# These live under /home/brian, NOT /data — confirmed empirically that this
+# host's Docker daemon cannot see /data at all as a bind-mount source (a
+# direct mount of /data/shared/GEOS/... comes up as an empty directory
+# inside the container, even though the same path is completely readable
+# from the host shell; a symlink under /home pointing back into /data
+# doesn't help either — it's a hard mount-namespace-level constraint of
+# this Docker daemon, not a permissions issue). vector_db and the /geos_lib
+# filtered-GEOS mount already dodge this by having Python copy them to a
+# /home-rooted path before the docker run; these directories needed the
+# same one-time treatment (copied via `cp -a`, ~605MB total, see git log
+# for the exact commands run). DEFAULT_GEOSX_CONDA_LIB_DIR was already
+# under /home/brian, so it never needed moving.
+DEFAULT_GEOSX_INSTALL_DIR = Path("/home/brian/.geosx_docker_runtime/install")
+DEFAULT_GEOSX_TPL_ROOT = Path("/home/brian/.geosx_docker_runtime/tpl")
 DEFAULT_GEOSX_TPL_SUBDIRS = ("hdf5", "suitesparse", "superlu_dist", "vtk")
 DEFAULT_GEOSX_CONDA_LIB_DIR = Path("/home/brian/miniconda3/envs/geos-build/lib")
 
