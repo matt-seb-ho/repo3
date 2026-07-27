@@ -400,15 +400,18 @@ def main() -> None:
                 f"`geosx --validate-input`. Errors:\n\n"
                 f"{feedback}\n\n"
                 "This means GEOS itself could not build the problem from your "
-                "XML: a referenced name (region, material, set, function, "
-                "task) does not resolve, or a required block/mesh is missing "
-                "or malformed. Fix the reported cause, then re-validate "
-                "locally with\n"
+                "XML: an unknown/misspelled element or attribute name, a "
+                "referenced name (region, material, set, function, task) "
+                "that does not resolve, or a required block/mesh that is "
+                "missing or malformed. Fix the reported cause, then "
+                "re-validate locally with\n"
                 f"  {executable} -i <entry_file>.xml --validate-input\n"
-                "before ending your turn. Note: this only catches structural/"
-                "reference errors caught while loading the deck — it does "
-                "not check attribute names/types against the schema the way "
-                "xmllint did.",
+                "before ending your turn. Note: this catches everything "
+                "resolved while GEOS loads the deck (including unknown tags/"
+                "attributes and most cross-references), but NOT a name "
+                "reference a solver only resolves during an actual solve "
+                "step (e.g. a discretization name with no matching "
+                "NumericalMethods entry) — those can still slip through.",
                 inputs_dir=inputs_dir,
                 reason_category="schema_error",
                 retries_so_far=retries,

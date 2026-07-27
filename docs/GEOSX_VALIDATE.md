@@ -42,27 +42,64 @@ for a small deck.
 
 ## Semantics differ from xmllint — read this before trusting a "validates" result
 
-`--validate-input` is a **loading-phase** check, not a schema linter:
+**Correction:** an earlier version of this doc claimed `--validate-input`
+misses unknown-attribute and unknown-element typos. That claim was wrong —
+it was based on a test that edited the wrong deck (`sed` patterns for
+`CompositionalMultiphaseFVM`/`name="compflow"` against a file whose actual
+solver tag is `<ImmiscibleMultiphaseFlow name="FlowSolver">`; the substitution
+matched nothing, so the file was byte-identical to the valid original and of
+course "validated"). Redone against the correct tag names, with a diff check
+to confirm each edit actually changed the file:
 
-- **Catches**: missing required top-level blocks (a base-only fragment
-  missing `Mesh`/`Events` crashes with a clean exception), and — more
-  usefully than xmllint — **dangling cross-references**. I renamed a
-  `<CellElementRegion name="region">` to `region_renamed` in one file
-  without updating the solver's `targetRegions` reference in the other file;
-  xmllint would pass this (both are valid XSD strings) but `--validate-input`
-  correctly failed with `No child named 'region' found. The children of
-  elementRegionsGroup are: { region_renamed }`.
-- **Does NOT catch**: unknown/misspelled attribute names or wrong attribute
-  types that GEOS's parser tolerates or silently defaults. I renamed a
-  `name="compflow"` attribute and added a bogus extra attribute on the
-  solver tag and `--validate-input` exited 0 — xmllint would have flagged
-  both against the XSD.
+- **Unknown attribute** (`totallyBogusAttribute="xyz"` added to the solver
+  tag): **caught**, exit 1 — `"contains unused attribute
+  'totallyBogusAttribute'. Valid attributes are: [full table]"`. GEOS's own
+  `dataRepository`/`xmlWrapper` layer enforces its attribute registry
+  natively, independent of the `.xsd`.
+- **Hallucinated element tag** (`ImmiscibleMultiphaseFlow` →
+  `ImmiscibleMultiphaseFlowBogus`): **caught**, exit 1 — `"The tag ... is
+  invalid within Solvers ... All available tags are: [full list of ~50
+  valid solver types]"`.
+- **Dangling name reference, resolved at load time** (renamed a
+  `<CellElementRegion name="region">` without updating the solver's
+  `targetRegions` reference to it): **caught**, exit 1 — `"No child named
+  'region' found. The children of elementRegionsGroup are: {
+  region_renamed }"`. xmllint would pass this (both are valid XSD strings;
+  no keyref constraint ties them together — see below).
+- **Dangling name reference, resolved lazily past the load phase**
+  (`discretization="TPFA_DOES_NOT_EXIST"`, not matching any defined
+  `NumericalMethods` child): **NOT caught**, exit 0. Whatever GEOS does to
+  link a solver to its discretization scheme apparently isn't exercised
+  until an actual solve step, which `--validate-input` stops short of.
 
-Net effect: this branch trades "strict schema/attribute compliance" for
-"does this deck actually build," which is a materially different error class
-from what `judge_geos.py`'s `bad_attribute_value` failure category measures
-(§6.2 of the SIGA paper). Don't assume this is a strict superset or subset of
-the xmllint behavior — it's a different check.
+So `--validate-input` is a strict superset of what xmllint catches for
+*most* practical agent-authoring mistakes (typo'd/hallucinated element and
+attribute names — the actual dominant failure mode per the SIGA paper's
+`bad_attribute_value`/`hallucinated_extras` categories) — it just isn't a
+perfect substitute for one specific residual class: name references that
+solvers resolve only during the run loop rather than during initial
+data-repository construction.
+
+**No command closes that residual gap, and combining xmllint doesn't help
+either.** I checked: `discretization` is typed `groupNameRef` in
+`schema.xsd` — a plain string type, not an enum, and the schema has zero
+`xsd:key`/`xsd:keyref` declarations anywhere (`grep -c "keyref\|xs:key "
+schema.xsd` → 0). So the XSD has no constraint machinery to express "this
+string must equal a sibling `NumericalMethods` child's name" in the first
+place — xmllint can't catch this class of error regardless of what runs
+alongside it. The only way to catch 100% of these would be to run the deck
+past the loading phase (drop `--validate-input` and actually execute), which
+is far too slow/expensive to use as a per-turn agent validator.
+
+Net effect: this branch trades a small, structurally-uncatchable residual
+gap (lazily-resolved name references) for a materially stronger check on
+everything that resolves at load time, which is most of what matters in
+practice. Concretely, this branch should catch element/attribute-name
+mistakes at least as well as xmllint did (plus some load-time cross-
+reference mistakes xmllint never could), and only misses the narrower class
+of solver-side name references GEOS itself defers past the load phase —
+which `judge_geos.py`'s `bad_attribute_value` category would still flag as
+wrong, geosx just won't tell the agent about it mid-trajectory.
 
 ## Docker mount is untested — flagging clearly
 

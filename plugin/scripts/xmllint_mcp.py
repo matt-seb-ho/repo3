@@ -80,11 +80,15 @@ def validate_geos_xml(xml_path: str) -> str:
     that <Included>s the rest, if the deck is split across files) — passing
     an include fragment alone will fail even if the fragment is correct,
     since it is missing the blocks (Mesh, Events, ...) only the entry file
-    defines. This catches referenced names that don't resolve (region,
-    material, set, function, task) and malformed/missing required blocks by
-    actually building GEOS's ProblemManager — it does NOT check attribute
-    names/types against the XSD schema the way the old xmllint-based
-    version of this tool did.
+    defines. This catches unknown/misspelled element and attribute names,
+    referenced names that don't resolve (region, material, set, function,
+    task), and malformed/missing required blocks, by actually building
+    GEOS's ProblemManager — GEOS enforces its own attribute/tag registry
+    natively during this, so in practice it catches at least as much as the
+    old xmllint-based version of this tool did. The one gap: a name a
+    solver only resolves during an actual solve step (e.g. a discretization
+    name with no matching NumericalMethods entry) can still slip through,
+    since --validate-input stops before the run loop starts.
 
     Args:
         xml_path: Path to the deck's entry XML file. Absolute
