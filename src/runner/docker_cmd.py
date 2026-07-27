@@ -164,6 +164,17 @@ def build_claude_native_command(
         "-e", "GEOS_HOOK_XMLLINT",
         "-e", "GEOS_HOOK_SCHEMA_PATH",
     ]
+    if model and "/" in model:
+        # Claude Code treats a "provider/model" string as a real Anthropic
+        # model ID unless told otherwise, and 404s with "model_not_found"
+        # against a multi-provider gateway like OpenRouter's Anthropic-
+        # compatible endpoint. These two vars are the missing signal (see
+        # scripts/openfoam/run_repo3_openfoam_ablation.py's identical
+        # handling — this harness was missing it for the native-Docker path).
+        cmd += [
+            "-e", f"ANTHROPIC_CUSTOM_MODEL_OPTION={model}",
+            "-e", f"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME={model} via gateway",
+        ]
     if enable_plugin:
         cmd += [
             "-e", "GEOS_VECTOR_DB_DIR",
@@ -217,6 +228,17 @@ def build_claude_native_env(
         "ANTHROPIC_BASE_URL",
         "https://openrouter.ai/api",
     )
+    # This runner always authenticates via ANTHROPIC_AUTH_TOKEN against a
+    # gateway (OpenRouter, DeepSeek's native endpoint, etc.), never a direct
+    # Anthropic API key. A real ANTHROPIC_API_KEY sitting in the host .env
+    # (e.g. for other tooling) still gets forwarded by docker_cmd.py's `-e
+    # ANTHROPIC_API_KEY` passthrough otherwise, and Claude Code appears to
+    # prioritize it over ANTHROPIC_CUSTOM_MODEL_OPTION's gateway-routing hint
+    # — causing a "model_not_found" 404 on any provider/model gateway string
+    # (e.g. deepseek/deepseek-v4-flash, or even the default
+    # minimax/minimax-m2.7). Blank it so the gateway hint wins, matching
+    # scripts/openfoam/run_repo3_openfoam_ablation.py's identical handling.
+    env["ANTHROPIC_API_KEY"] = ""
     if vector_db_dir is not None:
         env["GEOS_VECTOR_DB_DIR"] = str(CONTAINER_VECTOR_DB_DIR)
         env["EXCLUDED_GT_XML_FILENAMES"] = json.dumps(blocked_xml_filenames)
