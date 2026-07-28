@@ -8,6 +8,7 @@ Ported from the geos_agent repository. Provides:
 - ``agent_metrics`` — tool error rates and RAG retrieval accuracy from
   agent JSONL/JSON logs.
 - ``llm_judge`` — OpenAI/OpenRouter LLM-as-judge evaluator.
+- ``geos_output_judge`` — tool-using agent judge for GEOS run artifacts.
 - ``token_usage`` — aggregate billed tokens from JSONL/JSON logs.
 
 Contamination helpers live in ``runner.contamination`` — they are used
@@ -18,6 +19,7 @@ from . import (
     agent_metrics,
     judge_geos,
     llm_judge,
+    geos_output_judge,
     lxml_xml_eval,
     token_usage,
 )
@@ -26,6 +28,7 @@ __all__ = [
     "agent_metrics",
     "judge_geos",
     "llm_judge",
+    "geos_output_judge",
     "lxml_xml_eval",
     "token_usage",
 ]
