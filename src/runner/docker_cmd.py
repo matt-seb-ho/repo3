@@ -13,10 +13,18 @@ from typing import Any
 
 from .constants import (
     CONTAINER_GEOS_PRIMER_PATH,
+    CONTAINER_GEOSX_CONDA_LIB_DIR,
+    CONTAINER_GEOSX_EXECUTABLE,
+    CONTAINER_GEOSX_INSTALL_DIR,
+    CONTAINER_GEOSX_TPL_DIR,
     CONTAINER_MCP_CONFIG_PATH,
     CONTAINER_PLUGIN_DIR,
     CONTAINER_SETTINGS_PATH,
     CONTAINER_VECTOR_DB_DIR,
+    DEFAULT_GEOSX_CONDA_LIB_DIR,
+    DEFAULT_GEOSX_INSTALL_DIR,
+    DEFAULT_GEOSX_TPL_ROOT,
+    DEFAULT_GEOSX_TPL_SUBDIRS,
     DOCKER_IMAGE,
     NATIVE_CLAUDE_DISALLOWED_TOOLS,
     NATIVE_CLAUDE_TOOLS,
@@ -139,7 +147,18 @@ def build_claude_native_command(
         cmd += [
             "-v", f"{plugin_dir}:/plugins/repo3:ro",
             "-v", f"{vector_db_dir}:{CONTAINER_VECTOR_DB_DIR}:rw",
+            # geosx --validate-input runtime (geosx-validate-input branch):
+            # the built binary + its shared libs live outside the /geos_lib
+            # source mount, so they get their own read-only mounts. See
+            # constants.py for why there are three separate host roots.
+            "-v", f"{DEFAULT_GEOSX_INSTALL_DIR}:{CONTAINER_GEOSX_INSTALL_DIR}:ro",
+            "-v", f"{DEFAULT_GEOSX_CONDA_LIB_DIR}:{CONTAINER_GEOSX_CONDA_LIB_DIR}:ro",
         ]
+        for subdir in DEFAULT_GEOSX_TPL_SUBDIRS:
+            cmd += [
+                "-v",
+                f"{DEFAULT_GEOSX_TPL_ROOT / subdir}:{CONTAINER_GEOSX_TPL_DIR / subdir}:ro",
+            ]
     if supervisor_spec_host_path is not None:
         # Mounted at a fixed container path consumed by supervisor_mcp.py.
         cmd += [
@@ -164,6 +183,17 @@ def build_claude_native_command(
         "-e", "GEOS_HOOK_XMLLINT",
         "-e", "GEOS_HOOK_SCHEMA_PATH",
     ]
+    if model and "/" in model:
+        # Claude Code treats a "provider/model" string as a real Anthropic
+        # model ID unless told otherwise, and 404s with "model_not_found"
+        # against a multi-provider gateway like OpenRouter's Anthropic-
+        # compatible endpoint. These two vars are the missing signal (see
+        # scripts/openfoam/run_repo3_openfoam_ablation.py's identical
+        # handling — this harness was missing it for the native-Docker path).
+        cmd += [
+            "-e", f"ANTHROPIC_CUSTOM_MODEL_OPTION={model}",
+            "-e", f"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME={model} via gateway",
+        ]
     if enable_plugin:
         cmd += [
             "-e", "GEOS_VECTOR_DB_DIR",
@@ -172,6 +202,18 @@ def build_claude_native_command(
             # CLAUDE_PLUGIN_ROOT is used by the plugin's hooks.json to locate
             # the hook script (python3 ${CLAUDE_PLUGIN_ROOT}/hooks/verify_outputs.py).
             "-e", f"CLAUDE_PLUGIN_ROOT={CONTAINER_PLUGIN_DIR}",
+            # geosx --validate-input runtime, consumed by verify_outputs.py's
+            # _geosx_validate() and geosx_validate_mcp's validate_geos_xml().
+            "-e", f"GEOSX_EXECUTABLE={CONTAINER_GEOSX_EXECUTABLE}",
+            "-e", (
+                "LD_LIBRARY_PATH="
+                f"{CONTAINER_GEOSX_INSTALL_DIR}/lib:"
+                + ":".join(
+                    str(CONTAINER_GEOSX_TPL_DIR / subdir / "lib")
+                    for subdir in DEFAULT_GEOSX_TPL_SUBDIRS
+                )
+                + f":{CONTAINER_GEOSX_CONDA_LIB_DIR}"
+            ),
         ]
     cmd += [
         DOCKER_IMAGE,
@@ -217,6 +259,17 @@ def build_claude_native_env(
         "ANTHROPIC_BASE_URL",
         "https://openrouter.ai/api",
     )
+    # This runner always authenticates via ANTHROPIC_AUTH_TOKEN against a
+    # gateway (OpenRouter, DeepSeek's native endpoint, etc.), never a direct
+    # Anthropic API key. A real ANTHROPIC_API_KEY sitting in the host .env
+    # (e.g. for other tooling) still gets forwarded by docker_cmd.py's `-e
+    # ANTHROPIC_API_KEY` passthrough otherwise, and Claude Code appears to
+    # prioritize it over ANTHROPIC_CUSTOM_MODEL_OPTION's gateway-routing hint
+    # — causing a "model_not_found" 404 on any provider/model gateway string
+    # (e.g. deepseek/deepseek-v4-flash, or even the default
+    # minimax/minimax-m2.7). Blank it so the gateway hint wins, matching
+    # scripts/openfoam/run_repo3_openfoam_ablation.py's identical handling.
+    env["ANTHROPIC_API_KEY"] = ""
     if vector_db_dir is not None:
         env["GEOS_VECTOR_DB_DIR"] = str(CONTAINER_VECTOR_DB_DIR)
         env["EXCLUDED_GT_XML_FILENAMES"] = json.dumps(blocked_xml_filenames)

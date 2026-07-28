@@ -19,7 +19,12 @@ def _fetch_openrouter_generation_cost(gen_id: str, api_key: str) -> float | None
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
         return float(data["data"]["total_cost"])
-    except (urllib.error.URLError, KeyError, TypeError, ValueError):
+    except (urllib.error.URLError, KeyError, TypeError, ValueError, OSError):
+        # OSError covers socket.timeout/TimeoutError raised by a slow read
+        # on an already-open connection — urlopen's own timeout=10 doesn't
+        # wrap these in URLError, so without this they propagate uncaught.
+        # This is a best-effort cost lookup; a network hiccup here must
+        # never be worse than "cost unknown for this generation."
         return None
 
 
