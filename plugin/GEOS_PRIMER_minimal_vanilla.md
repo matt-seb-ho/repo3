@@ -25,10 +25,4 @@ GEOS (Geomechanics and EOS Simulator) is an open-source multiphysics simulator. 
 </Problem>
 ```
 
-## Recommended workflow
-1. Find a similar existing example using `Glob` / `Grep` / `Read` against `/geos_lib/inputFiles/`. Search by physics keyword (e.g. `Glob` for `*Wellbore*.xml`; `Grep` for `<SinglePhasePoromechanics`); use `Read` on the full example XMLs.
-2. `Read` the full example XML from `/geos_lib/inputFiles/...` and adapt it to the task's spec.
-3. Write the adapted XML to `/workspace/inputs/<name>.xml`.
-4. Read each file back to verify structure matches the spec before finishing.
-
-That's it.
+Validate every XML you produce against the GEOS XSD with `mcp__xmllint__validate_geos_xml` before finishing — it lists any invalid elements/attributes alongside the expected ones.

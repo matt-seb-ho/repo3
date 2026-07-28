@@ -14,7 +14,7 @@ from pathlib import Path
 # parents up (repo3/src/runner/ -> repo3/src/ -> repo3/).
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = REPO_ROOT / "scripts"  # legacy alias; preserved for parity
-RUN_ASSETS_DIR = REPO_ROOT / "run"  # AGENTS.md + Dockerfile live here
+RUN_ASSETS_DIR = REPO_ROOT / "run"  # AGENTS_old.md (archived) + Dockerfile live here
 DATA_DIR = REPO_ROOT / "data"
 EXPERIMENTS_DIR = DATA_DIR / "eval" / "experiments"
 GROUND_TRUTH_DIR = DATA_DIR / "eval" / "experiments_gt"
@@ -57,9 +57,7 @@ CONTAINER_GEOSX_INSTALL_DIR = Path("/opt/geosx-install")
 CONTAINER_GEOSX_TPL_DIR = Path("/opt/geosx-tpl")
 CONTAINER_GEOSX_CONDA_LIB_DIR = Path("/opt/geosx-conda-lib")
 CONTAINER_GEOSX_EXECUTABLE = CONTAINER_GEOSX_INSTALL_DIR / "bin" / "geosx"
-DEFAULT_GEOS_PRIMER_PATH = Path(
-    "/home/brianliu/geophys-embodied-agent-framework/modules/profile/GEOS_PRIMER.md"
-)
+DEFAULT_GEOS_PRIMER_PATH = REPO_ROOT / "plugin" / "GEOS_PRIMER_absolute_min.md"
 DEFAULT_CLAUDE_MODEL = "minimax/minimax-m2.7"
 CONTAINER_PLUGIN_DIR = Path("/plugins/repo3")
 CONTAINER_SETTINGS_PATH = Path("/workspace/claude_settings.json")

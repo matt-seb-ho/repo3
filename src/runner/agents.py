@@ -28,6 +28,7 @@ AGENTS: dict[str, dict] = {
         "model": DEFAULT_CLAUDE_MODEL,
         "requires_rag": True,
         "plugin_enabled": True,
+        "stop_hook_enabled": False,
     },
     # xmllint ablation: CC + RAG + hook with the xmllint-aware primer
     # variant inlined. Caller must pass `--strip-baked-primer
