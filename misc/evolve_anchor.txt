@@ -1,0 +1,25 @@
+# SIGA-Evolve v2 anchor slice — DRAFT, must be reviewed and frozen before use.
+#
+# Every candidate is scored on THIS FIXED slice, so round-over-round numbers are
+# comparable by construction. v1 used disjoint 6/6/5 thirds of the 17 validation
+# tasks across its three rounds, which confounded adapter quality with task
+# difficulty.
+#
+# Selection rationale for this draft: 8 of the 17 validation-selection tasks,
+# spread across the physics families present in the pool (triaxial driver,
+# wellbore poro/thermo, compositional multiphase flow, hydraulic fracturing,
+# classical poroelasticity) so a candidate cannot win by overfitting one family.
+# The remaining 9 form the probe slice: sampled for EVIDENCE only, never scored
+# for selection. The 10 held-out-eval tasks are touched exactly once, at the end.
+#
+# NOTE: this is a proposal. Freeze it deliberately (and record the choice)
+# before the first search run — changing the anchor mid-search invalidates every
+# comparison made before the change.
+AdvancedExampleDruckerPrager
+AdvancedExampleModifiedCamClay
+buckleyLeverettProblem
+ExampleDPWellbore
+ExampleMandel
+ExampleThermoporoelasticConsolidation
+kgdExperimentValidation
+TutorialSneddon

@@ -1,4 +1,19 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# ==========================================================================
+# QUARANTINED 2026-08-19 — DO NOT RUN.
+#
+# This script launches plugin_evolving/v4, whose memory/cheatsheet.md is a
+# task-name -> canonical-XML lookup table covering all 17 validation tasks.
+# Any score it produces is inflated by an unknown amount.
+# See plugin_evolving/_quarantine/README.md.
+#
+# The plugin has been moved to plugin_evolving/_quarantine/v4/ and the
+# --plugin-dir path below no longer resolves, so this script now fails fast
+# rather than silently producing a contaminated number.
+# ==========================================================================
+echo "REFUSING TO RUN: see plugin_evolving/_quarantine/README.md" >&2
+exit 2
+
 # v4 lookup-table experiment: same harness as SE (xmllint + plugin_enabled),
 # but with plugin_evolving/v4/ — adds trajectory-mined task→canonical XML
 # lookup, constitutive→header lookup, and anti-patterns to v3 cheatsheet.

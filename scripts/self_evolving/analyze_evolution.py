@@ -62,13 +62,19 @@ def render_evolution_log() -> str:
     for line in log.read_text().splitlines():
         try:
             d = json.loads(line.strip())
+            rmt = d.get('round_mean_treesim')
+            rmt_s = f"{rmt:.4f}" if isinstance(rmt, float) else str(rmt)
             parts.append(
                 f"v{d['version']} (parent v{d['parent']}) @ {d['timestamp']}: "
-                f"round_mean_treesim={d.get('round_mean_treesim','?'):.4f if isinstance(d.get('round_mean_treesim'), float) else d.get('round_mean_treesim','?')} "
+                f"round_mean_treesim={rmt_s} "
                 f"files_written={d.get('files_written',[])}"
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # Was a bare `pass`, which swallowed a ValueError raised by a
+            # malformed f-string format spec on EVERY line -- so this function
+            # always returned "" and nobody ever saw that the version log
+            # recorded round_mean_treesim = 0 for all three reflections.
+            parts.append(f"(unrenderable log line: {type(exc).__name__}: {exc})")
     return "\n".join(parts)
 
 
