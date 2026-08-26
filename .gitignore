@@ -49,3 +49,17 @@ scripts/analysis/out_4cond/**/*.csv
 
 # SIGA-Evolve working dirs (candidates, eval cache, search runs)
 .evolve/
+
+# NeurIPS rebuttal sprint: derived experiment artifacts. ~75 GB, dominated by
+# preserved GEOS run directories plus raw judge outputs and per-run dumps.
+# Regenerable from the scripts kept alongside them. Logs, analysis writeups and
+# response drafts under neurips_review/ ARE tracked.
+neurips_review/sprint/artifacts/
+neurips_review.zip
+
+# macOS metadata from the MacBook migration
+._*
+.DS_Store
+
+# External reference repos cloned for reading (nested git checkouts)
+misc/memp_external/
