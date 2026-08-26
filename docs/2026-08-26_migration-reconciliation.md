@@ -64,6 +64,25 @@ On top of `feat/enroot-backend`:
 Tests after all of it: `pytest tests/` → **53 passed** (`test_evolve` 42,
 `test_container_spec` 8).
 
+### The `autocamp-experiment-state` tag — recovered, and mentioned in neither handoff
+
+The MacBook bundle carries an annotated tag that the VPS bundle does not have
+and that **GitHub does not have** (`git ls-remote --tags origin` is empty). It
+marks commit `6503be1`, the exact harness state that produced the paper's
+reported test-17 and Held-out-10 numbers:
+
+> The autocamp campaign ran 2026-05-01 13:27 UTC to 2026-05-02 17:25 UTC on this
+> commit. After it finished, two commits by brianzliu landed on remote main and
+> pulling rebased the local `[CAMPAIGN]` commit onto them, so **main now contains
+> code Brian added after the experiments ran.**
+
+That makes it the reproducibility anchor for the published numbers, and it is
+**not reachable from any branch** — only the tag keeps `6503be1` alive. It has
+been fetched into `~/src/repo3` and survives there independently of the bundle,
+but it is currently local-only. **Push it** (`git push origin
+autocamp-experiment-state`) before deleting the MacBook bundle, or the anchor
+goes back to existing in exactly one place.
+
 ### What was deliberately NOT imported
 
 - **`plugin_evolving/v4` and `scripts/launch_autocamp_v4.sh`.** The VPS line
