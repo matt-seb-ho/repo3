@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .container_spec import ContainerSpec, Mount
 from .constants import (
     CONTAINER_GEOS_PRIMER_PATH,
     CONTAINER_GEOSX_CONDA_LIB_DIR,
@@ -60,23 +61,28 @@ def build_claude_native_mcp_smoke_command(
     plugin_dir: Path,
     vector_db_dir: Path,
 ) -> list[str]:
-    return [
-        "docker", "run", "--rm",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-v", f"{result_dir}:/workspace:rw",
-        "-v", f"{plugin_dir}:/plugins/repo3:ro",
-        "-v", f"{vector_db_dir}:{CONTAINER_VECTOR_DB_DIR}:rw",
-        "-e", "HOME=/workspace/.claude_home",
-        "-e", "UV_CACHE_DIR=/workspace/.uv_cache",
-        "-e", "CLAUDE_PLUGIN_ROOT=/plugins/repo3",
-        "-e", f"GEOS_VECTOR_DB_DIR={CONTAINER_VECTOR_DB_DIR}",
-        DOCKER_IMAGE,
-        "uv",
-        "run",
-        "--script",
-        str(CONTAINER_PLUGIN_DIR / "scripts" / "geos_rag_mcp.py"),
-        "--smoke",
-    ]
+    spec = ContainerSpec(
+        image=DOCKER_IMAGE,
+        mounts=[
+            Mount(result_dir, "/workspace"),
+            Mount(plugin_dir, "/plugins/repo3", read_only=True),
+            Mount(vector_db_dir, CONTAINER_VECTOR_DB_DIR),
+        ],
+        env=[
+            "HOME=/workspace/.claude_home",
+            "UV_CACHE_DIR=/workspace/.uv_cache",
+            "CLAUDE_PLUGIN_ROOT=/plugins/repo3",
+            f"GEOS_VECTOR_DB_DIR={CONTAINER_VECTOR_DB_DIR}",
+        ],
+        argv=[
+            "uv",
+            "run",
+            "--script",
+            str(CONTAINER_PLUGIN_DIR / "scripts" / "geos_rag_mcp.py"),
+            "--smoke",
+        ],
+    )
+    return spec.render()
 
 
 def preflight_claude_native_mcp(
@@ -135,53 +141,59 @@ def build_claude_native_command(
     enable_plugin: bool = True,
     supervisor_spec_host_path: Path | None = None,
 ) -> list[str]:
-    cmd = [
-        "docker", "run", "--rm",
-        "--user", f"{os.getuid()}:{os.getgid()}",
-        "-v", f"{filtered_geos}:/geos_lib:ro",
-        "-v", f"{result_dir}:/workspace:rw",
+    mounts: list[Mount] = [
+        Mount(filtered_geos, "/geos_lib", read_only=True),
+        Mount(result_dir, "/workspace"),
     ]
+    env: list[str] = []
     if enable_plugin:
         if plugin_dir is None or vector_db_dir is None:
             raise ValueError("plugin_dir and vector_db_dir required when enable_plugin=True")
-        cmd += [
-            "-v", f"{plugin_dir}:/plugins/repo3:ro",
-            "-v", f"{vector_db_dir}:{CONTAINER_VECTOR_DB_DIR}:rw",
+        mounts += [
+            Mount(plugin_dir, "/plugins/repo3", read_only=True),
+            Mount(vector_db_dir, CONTAINER_VECTOR_DB_DIR),
             # geosx --validate-input runtime (geosx-validate-input branch):
             # the built binary + its shared libs live outside the /geos_lib
             # source mount, so they get their own read-only mounts. See
             # constants.py for why there are three separate host roots.
-            "-v", f"{DEFAULT_GEOSX_INSTALL_DIR}:{CONTAINER_GEOSX_INSTALL_DIR}:ro",
-            "-v", f"{DEFAULT_GEOSX_CONDA_LIB_DIR}:{CONTAINER_GEOSX_CONDA_LIB_DIR}:ro",
+            Mount(DEFAULT_GEOSX_INSTALL_DIR, CONTAINER_GEOSX_INSTALL_DIR, read_only=True),
+            Mount(DEFAULT_GEOSX_CONDA_LIB_DIR, CONTAINER_GEOSX_CONDA_LIB_DIR, read_only=True),
         ]
         for subdir in DEFAULT_GEOSX_TPL_SUBDIRS:
-            cmd += [
-                "-v",
-                f"{DEFAULT_GEOSX_TPL_ROOT / subdir}:{CONTAINER_GEOSX_TPL_DIR / subdir}:ro",
-            ]
+            mounts.append(
+                Mount(
+                    DEFAULT_GEOSX_TPL_ROOT / subdir,
+                    CONTAINER_GEOSX_TPL_DIR / subdir,
+                    read_only=True,
+                )
+            )
     if supervisor_spec_host_path is not None:
         # Mounted at a fixed container path consumed by supervisor_mcp.py.
-        cmd += [
-            "-v",
-            f"{supervisor_spec_host_path}:/supervisor/spec.md:ro",
-        ]
-    cmd += [
-        "-e", "HOME=/workspace/.claude_home",
-        "-e", "XDG_CONFIG_HOME=/workspace/.claude_home/.config",
-        "-e", "UV_CACHE_DIR=/workspace/.uv_cache",
-        "-e", "ANTHROPIC_BASE_URL",
-        "-e", "ANTHROPIC_AUTH_TOKEN",
-        "-e", "ANTHROPIC_API_KEY",
-        "-e", "OPENROUTER_API_KEY",
-        "-e", "OPENAI_API_KEY",
-        "-e", "DEEPSEEK_API_KEY",
+        mounts.append(Mount(supervisor_spec_host_path, "/supervisor/spec.md", read_only=True))
+    env += [
+        "HOME=/workspace/.claude_home",
+        "XDG_CONFIG_HOME=/workspace/.claude_home/.config",
+        "UV_CACHE_DIR=/workspace/.uv_cache",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "OPENROUTER_API_KEY",
+        "OPENAI_API_KEY",
+        "DEEPSEEK_API_KEY",
         # Forwards for plugin/hooks/verify_outputs.py knobs. Absent vars
-        # are fine — hook has sane defaults.
-        "-e", "GEOS_HOOK_DISABLE",
-        "-e", "GEOS_HOOK_MAX_RETRIES",
-        "-e", "GEOS_HOOK_SELF_REFLECT",
-        "-e", "GEOS_HOOK_XMLLINT",
-        "-e", "GEOS_HOOK_SCHEMA_PATH",
+        # are fine -- hook has sane defaults.
+        "GEOS_HOOK_DISABLE",
+        "GEOS_HOOK_MAX_RETRIES",
+        "GEOS_HOOK_SELF_REFLECT",
+        "GEOS_HOOK_XMLLINT",
+        "GEOS_HOOK_SCHEMA_PATH",
+        # INTEGRATION_REQUIREMENTS R1: the stop policy is a searchable
+        # component, so these two must reach the hook or a search would vary a
+        # knob nothing reads. Forwarding them here is necessary but NOT
+        # sufficient -- verify_outputs.py must also read them. See docs/ENROOT.md
+        # and sci-sim-op docs/INTEGRATION_REQUIREMENTS.md.
+        "GEOS_EVOLVE_FEEDBACK_SHAPE",
+        "GEOS_EVOLVE_CHECKS",
     ]
     if model and "/" in model:
         # Claude Code treats a "provider/model" string as a real Anthropic
@@ -189,23 +201,23 @@ def build_claude_native_command(
         # against a multi-provider gateway like OpenRouter's Anthropic-
         # compatible endpoint. These two vars are the missing signal (see
         # scripts/openfoam/run_repo3_openfoam_ablation.py's identical
-        # handling — this harness was missing it for the native-Docker path).
-        cmd += [
-            "-e", f"ANTHROPIC_CUSTOM_MODEL_OPTION={model}",
-            "-e", f"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME={model} via gateway",
+        # handling -- this harness was missing it for the native-Docker path).
+        env += [
+            f"ANTHROPIC_CUSTOM_MODEL_OPTION={model}",
+            f"ANTHROPIC_CUSTOM_MODEL_OPTION_NAME={model} via gateway",
         ]
     if enable_plugin:
-        cmd += [
-            "-e", "GEOS_VECTOR_DB_DIR",
-            "-e", "EXCLUDED_GT_XML_FILENAMES",
-            "-e", "EXCLUDED_RST_PATHS",
+        env += [
+            "GEOS_VECTOR_DB_DIR",
+            "EXCLUDED_GT_XML_FILENAMES",
+            "EXCLUDED_RST_PATHS",
             # CLAUDE_PLUGIN_ROOT is used by the plugin's hooks.json to locate
             # the hook script (python3 ${CLAUDE_PLUGIN_ROOT}/hooks/verify_outputs.py).
-            "-e", f"CLAUDE_PLUGIN_ROOT={CONTAINER_PLUGIN_DIR}",
+            f"CLAUDE_PLUGIN_ROOT={CONTAINER_PLUGIN_DIR}",
             # geosx --validate-input runtime, consumed by verify_outputs.py's
             # _geosx_validate() and geosx_validate_mcp's validate_geos_xml().
-            "-e", f"GEOSX_EXECUTABLE={CONTAINER_GEOSX_EXECUTABLE}",
-            "-e", (
+            f"GEOSX_EXECUTABLE={CONTAINER_GEOSX_EXECUTABLE}",
+            (
                 "LD_LIBRARY_PATH="
                 f"{CONTAINER_GEOSX_INSTALL_DIR}/lib:"
                 + ":".join(
@@ -215,8 +227,7 @@ def build_claude_native_command(
                 + f":{CONTAINER_GEOSX_CONDA_LIB_DIR}"
             ),
         ]
-    cmd += [
-        DOCKER_IMAGE,
+    argv = [
         "claude",
         "-p",
         "--verbose",
@@ -225,9 +236,9 @@ def build_claude_native_command(
         "--tools", NATIVE_CLAUDE_TOOLS,
     ]
     for disallowed in NATIVE_CLAUDE_DISALLOWED_TOOLS:
-        cmd += ["--disallowedTools", disallowed]
+        argv += ["--disallowedTools", disallowed]
     if enable_plugin:
-        cmd += [
+        argv += [
             f"--mcp-config={CONTAINER_MCP_CONFIG_PATH}",
             "--strict-mcp-config",
             # The Stop hook (verify_outputs.py) is registered via --settings
@@ -237,7 +248,7 @@ def build_claude_native_command(
             # with tool-list-shape effects. See RN-002 / XN-010.
             "--settings", str(CONTAINER_SETTINGS_PATH),
         ]
-    cmd += [
+    argv += [
         "--output-format", "stream-json",
         "--permission-mode", "bypassPermissions",
         # Separator so a prompt starting with `--` (e.g. the task spec opens
@@ -245,7 +256,7 @@ def build_claude_native_command(
         "--",
         prompt,
     ]
-    return cmd
+    return ContainerSpec(image=DOCKER_IMAGE, mounts=mounts, env=env, argv=argv).render()
 
 
 def build_claude_native_env(

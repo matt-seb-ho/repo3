@@ -24,6 +24,7 @@ from .claude_settings import (
     write_claude_mcp_config,
     write_claude_settings,
 )
+from .container_spec import prepare_enroot_workspace
 from .constants import (
     CONTAINER_GEOS_PRIMER_PATH,
     CONTAINER_MCP_CONFIG_PATH,
@@ -258,6 +259,10 @@ def run_task(
             write_claude_settings(result_dir=result_dir, hook_enabled=hook_enabled)
         else:
             plugin_dir = None
+        # enroot chdirs into $HOME during switchroot and aborts if it is missing.
+        # $HOME is /workspace/.claude_home, i.e. inside the result_dir bind mount,
+        # so it has to exist on the host first. No-op under docker.
+        prepare_enroot_workspace(result_dir)
         native_model = claude_model or agent.get("model") or DEFAULT_CLAUDE_MODEL
         # The native_plugin_prefix is a user-prompt addendum that names
         # specific MCP tools the agent should call ("Use the GEOS RAG MCP
