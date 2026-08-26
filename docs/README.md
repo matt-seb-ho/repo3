@@ -20,8 +20,16 @@ ln -s /data/shared/geophysics_agent_data/data/eval/runs   runs
 #    OPENROUTER_API_KEY=...     (MCP server embeddings; falls back to ANTHROPIC_AUTH_TOKEN)
 
 # 3. Build the eval container image
-docker build -t geos-eval run/
+#    On serv6/9/10/11 docker is disabled by the admins -- use enroot:
+bash run/build_enroot_image.sh
+export REPO3_CONTAINER_BACKEND=enroot
+#    Where docker is available, the original path still works:
+#    docker build -t geos-eval run/
 ```
+
+The runner supports both container backends; `REPO3_CONTAINER_BACKEND` selects
+one and defaults to `docker`. See [ENROOT.md](ENROOT.md) for the full guide and
+for the behavioural differences between the two.
 
 ### Run a suite end-to-end (recommended)
 
@@ -33,7 +41,8 @@ uv run python scripts/run_and_eval.py \
     --workers 2
 ```
 
-This runs the agent in Docker, one workspace per task, then scores each
+This runs the agent in a container (docker or enroot, per
+`REPO3_CONTAINER_BACKEND`), one workspace per task, then scores each
 task's `inputs/*.xml` against ground truth. The orchestrator prints the
 exact commands it invokes so either phase can be rerun standalone.
 

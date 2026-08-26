@@ -2,18 +2,21 @@
 
 ## Purpose
 
-Launch GEOS-XML-authoring tasks under multiple agents in parallel Docker
+Launch GEOS-XML-authoring tasks under multiple agents in parallel
 containers, capture per-task logs and outputs, and emit status JSON that a
-dashboard / later-stage evaluator can read.
+dashboard / later-stage evaluator can read. The container backend is selected
+by `REPO3_CONTAINER_BACKEND` (`docker` by default, `enroot` on hosts where
+docker is unavailable -- see [ENROOT.md](ENROOT.md)).
 
 Layout:
 
 - `scripts/run_experiment.py` — CLI shim (what you actually run). Just imports `runner.cli.main` and calls it.
-- `src/runner/` — the runner package (`runner.cli`, `runner.agents`, `runner.orchestrator`, `runner.task`, `runner.docker_cmd`, `runner.prompts`, `runner.tool_counts`, `runner.events`, `runner.claude_settings`, `runner.cost`, `runner.process_mgr`, `runner.contamination`, `runner.dashboard.{snapshot,server}`).
+- `src/runner/` — the runner package (`runner.cli`, `runner.agents`, `runner.orchestrator`, `runner.task`, `runner.container_spec`, `runner.docker_cmd`, `runner.prompts`, `runner.tool_counts`, `runner.events`, `runner.claude_settings`, `runner.cost`, `runner.process_mgr`, `runner.contamination`, `runner.dashboard.{snapshot,server}`).
 - `src/runner/prompts/` — long prompt strings (`rag_instructions.txt`, `rag_vanilla.txt`, `memory_instructions.txt`, `pseudo_tool_retry.txt`, `no_outputs_retry.txt`, `real_tool_tail.txt`, `native_plugin_prefix.txt`) loaded at import time and combined by `runner.prompts.build_system_prompt`.
 - `src/runner/dashboard/template.html` — the live-status dashboard HTML.
 - `run/AGENTS.md` — agent system prompt (read by the script at startup).
 - `run/Dockerfile` — image the runner invokes (`docker build -t geos-eval run/`).
+- `run/build_enroot_image.sh` — reproduces that image without docker, for the enroot backend.
 
 Three runners are wired in (`AGENTS` dict in `src/runner/agents.py`):
 

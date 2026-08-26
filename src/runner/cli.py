@@ -18,14 +18,17 @@ Usage:
     # Override the experiments source directory
     python run_eval.py --run experiment_run1 --experiments-dir /path/to/my/tasks
 
-    # Dry run (prints docker commands without executing)
+    # Dry run (prints container commands without executing)
     python run_eval.py --run experiment_run1 --dry-run
 
     # Adjust concurrency and timeout
     python run_eval.py --run experiment_run1 --workers 4 --timeout 900
 
-Build the Docker image first:
-    docker build -t geos-eval run/
+Build the container image first:
+    docker build -t geos-eval run/        # docker hosts
+    bash run/build_enroot_image.sh        # enroot hosts (serv6/9/10/11)
+
+Select the backend with REPO3_CONTAINER_BACKEND=docker|enroot (default docker).
 
 Expected layout after a run:
     /home/brianliu/data/eval/
@@ -163,7 +166,7 @@ def main() -> None:
         "--workers", "-w",
         type=int,
         default=2,
-        help="Max concurrent docker runs (default: 2; keep low to avoid OOM)",
+        help="Max concurrent container runs (default: 2; keep low to avoid OOM)",
     )
     parser.add_argument(
         "--dry-run",
