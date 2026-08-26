@@ -1,0 +1,82 @@
+============================================================
+Task     : buckleyLeverettProblem
+Cell     : X+M  (xmllint MCP validator + memory cheatsheet)
+Backbone : deepseek-v4-flash
+Final    : deck-level TreeSim 0.917 ; ~5 min wall-clock ; 47 tool calls
+============================================================
+
+[Plan]   The brief asks for a 1D immiscible CO2/brine displacement.
+         Two files: buckleyLeverett_base.xml (physics, materials, BCs)
+         and buckleyLeverett_benchmark.xml (mesh, geometry, events,
+         <Included> -> base). Per the system primer (M factor),
+         multiphase flow -> CompositionalMultiphaseFVM solver, paired
+         with DeadOilFluid + BrooksCoreyRelativePermeability.
+
+[Tool]   Glob('/geos_lib/inputFiles/compositionalMultiphaseFlow/**/*.xml')
+         -> 18 hits including dbc/buckleyLeverett_1d/, deadOilEgg/,
+         co2BrineThermal/.
+[Tool]   Read('/geos_lib/inputFiles/compositionalMultiphaseFlow/dbc/
+              buckleyLeverett_1d/buckleyLeverett_1d_base.xml') (211 lines)
+         -> structurally analogous deck (DBC variant); extract solver
+         block, ElementRegions skeleton, table-file pattern.
+[Tool]   Read('/geos_lib/inputFiles/compositionalMultiphaseFlow/dbc/
+              buckleyLeverett_1d/buckleyLeverett_1d_benchmark.xml')
+         -> mesh xCoords/yCoords/zCoords pattern, Events block layout.
+
+[Plan]   Confirmed: copy structural skeleton from sibling deck,
+         re-parameterise per the spec (porosity 0.2, perm 9e-13 m^2,
+         scale=-7e-5 source flux, sink at faceManager). Spec says
+         deadoil pvdg/pvtw tables are externally supplied --
+         keep tableFiles attribute, omit the table contents.
+
+[Edit]   Write('/workspace/inputs/buckleyLeverett_base.xml', ...)
+         -> 168 lines: <Solvers>, <NumericalMethods>, <ElementRegions>,
+         <Constitutive>, <FieldSpecifications>, <Outputs>, <Tasks>.
+
+[Tool]   mcp__xmllint__validate_geos_xml(
+            file='/workspace/inputs/buckleyLeverett_base.xml')
+         -> RETURN: invalid; error at FieldSpecification[@scale='1e7'],
+            line 90: 'scale' must be a numeric value, but the schema
+            also requires component='-1' on initialPressure for non-
+            multi-component fields.
+[Plan]   xmllint flagged a missing default; cheatsheet's
+         "boundary conditions" entry confirms component is conventional
+         on FieldSpecification. Patch.
+[Edit]   Edit base.xml: add component="-1" to initialPressure.
+
+[Tool]   mcp__xmllint__validate_geos_xml(...)  -> valid.
+
+[Edit]   Write('/workspace/inputs/buckleyLeverett_benchmark.xml')
+         -> 60 lines: <Included>, <Mesh>, <Geometry>, <Events>.
+         Mesh: nx=1000 (1D), maxTime=70.1s, solverApplications
+         maxEventDt=0.01.
+
+[Tool]   mcp__xmllint__validate_geos_xml(
+            file='/workspace/inputs/buckleyLeverett_benchmark.xml')
+         -> valid.
+
+[Done]   Agent ends turn. (S is OFF in this cell, so no stop-hook
+         runs; the agent's own xmllint calls were sufficient.)
+
+[Score]  TreeSim breakdown vs ground truth:
+           Solvers           1.000
+           NumericalMethods  1.000
+           ElementRegions    1.000
+           Constitutive      0.946  (BrooksCoreyRelativePermeability
+                                     phaseRelPermExponent ordering
+                                     swapped: agent had {3.5, 3.5},
+                                     same value, but minor child-name
+                                     mismatch on PressurePorosity
+                                     compressibility 1e-15 vs the GT's
+                                     1.0e-15 normalisation.)
+           FieldSpecifications 0.871 (sinkTermComposition_water
+                                     missing; the agent emitted the
+                                     gas component but truncated the
+                                     paired water component.)
+           Outputs           1.000
+           Tasks             1.000
+           Mesh              1.000
+           Geometry          1.000
+           Events            0.892  (PeriodicEvent for
+                                     timeHistoryCollection elided.)
+         Deck-level TreeSim 0.917.
