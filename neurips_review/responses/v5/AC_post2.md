@@ -1,0 +1,32 @@
+<!-- v5 DRAFT 2026-07-28. Addendum Official Comment to the AC, posted right after AC.md. POST 2 OF 2.
+     CHANGED FROM v4: this is now a PURE evaluation addendum. Meta-review bullets 3 (scale) and
+     4 (human comparison) and the kEdh point moved back into AC.md, so post 1 answers every
+     criticism on its own and this post is optional depth.
+     The "xmllint is not equivalent to geosx" framing is kept here in a NEUTRAL form (what the
+     new validator surfaces) rather than the v4 "defect in our own tooling" framing.
+     NUMBERS RE-VERIFIED from sprint_artifacts.tar.xz (K3_per_run.csv, K3_correlations.csv,
+     L1_report.txt, L2_report.txt).
+     Style: no em dashes, no links, no arXiv mention, VERIFIED numbers only.
+     Prose ~5,200 chars. HARD CAP 10,000. -->
+
+# Addendum: the extended evaluation protocol in detail
+
+This addendum gives the construction and the full numbers behind the table in our main comment, for the AC's reference. All results are on the held-out split, which is the split we treat as clean.
+
+**Levels 1 and 2, artifact validity.** Re-run at 17 runs per cell rather than 3, because these are counts of rare events and three runs estimate them poorly. Vanilla is well-formed and schema-valid on 155 of 170, S+X on 170 of 170, X+M on 100 of 100. The gap is 8.8 points, with a run-and-task clustered interval of +2.9 to +16.5 points, p = 0.0006, and 270 adapter runs with no failures at all.
+
+**Level 3, acceptance by the simulator.** GEOS is asked to load each root deck without running it, at about 2.5 s per deck. The adapter as submitted validated with `xmllint --schema`, which the GEOS documentation recommends, and a schema check cannot express cross-reference or arity constraints: a PVT model named in one file but absent from the deck, a constitutive model missing on a named subregion, a component-count mismatch between two blocks. Those are exactly the residual failure class our bottleneck analysis reports as unfixed by any adapter. Putting the simulator's own input check into the verification loop instead surfaces them, and the agent repairs them: acceptance moves from 23 to 27 of 30 for S+X and from 24 to 25 of 30 for S+X+M. In one case the agent added a missing thermal conductivity model to the region that referenced it, a defect no schema check can express.
+
+**Level 4, convergence.** Restricted to tasks whose reference deck itself converges cleanly, every held-out deck GEOS accepted also ran to completion and converged, 77 of 77. Acceptance is therefore the binding constraint rather than solving, which means a 2.5 second check captures nearly all of the execution signal. That is a useful result for anyone building this kind of benchmark.
+
+**Level 5, output reproduction.** The design choice that makes this defensible is that generated and reference decks routinely use different meshes, so no cell-by-cell comparison is possible without interpolation. We avoid interpolation entirely. We inject an identical output block and final-time event into both the reference and the candidate deck, so neither deck's own choice of outputs affects the comparison; we run both, treat each physical quantity as a bag of values over all cells at final time, and compare only mesh-independent reductions of that bag (min, max, mean, and root-mean-square, the last defined as the square root of the mean square rather than the raw norm, which would reintroduce mesh dependence). Each reduction is normalised by the reference's own scale, the reference alone fixes which quantities count so the metric cannot be gamed by emitting more or fewer outputs, and a missing quantity scores zero.
+
+Across 489 runs on 18 tasks, with the held-out split reported here: mean fidelity conditional on the deck running is 0.958, 46% of running decks reproduce the reference almost exactly and 73% are within one percent, and structural similarity predicts output fidelity at rho = 0.36 (interval 0.20 to 0.51, p = 0.0001). The gap between structure and physics therefore sits in decks that fail to run rather than in decks that run and are wrong, which is what our reliability framing predicts. One sensitivity we would rather state than have found: averaging the four reductions dilutes a catastrophic failure in a single quantity, and using the worst reduction instead lowers the correlation.
+
+**The semantic axis.** For each canonical GEOS section the judge sees the reference version, the candidate version and the task brief, and returns an ordinal materiality verdict (equivalent, minor, material, severe) rather than a number, which code then maps to credit. Four judges from four model families, none of them the agent's backbone, blind to which condition produced the deck, with presentation order swapped.
+
+Validated against the level-5 simulation outputs above, the judge's score on the physics-bearing sections predicts measured output fidelity at rho = 0.418 (p = 0.0006), and the `Solvers` subtree alone reaches rho = 0.456 (p = 0.0007), which locates where structural error actually propagates into physical divergence. Two results keep us from offering it as a finished instrument: it does not beat plain structural scoring at predicting fidelity (paired difference -0.040, interval -0.257 to +0.166), and two of the four judges ordered the conditions differently. We also tested the deterministic alternative of re-weighting the structural metric toward physics-bearing sections, which yields at most a small improvement (+0.033, interval -0.003 to +0.072), while restricting to those sections alone predicts fidelity no better than a random subset of the same size. Uniform section weighting therefore now rests on a test rather than an assumption.
+
+**One result that runs in the paper's favour.** Independently of condition, roughly two-thirds of the attribute mismatches our structural metric penalises as total mismatches are judged physically immaterial. Together with 0.958 output fidelity among running decks, this indicates the structural numbers we report are conservative rather than generous.
+
+**What this protocol still needs.** Three things are domain judgements rather than statistics, and we would rather build them with the simulator's developers than assert them: which quantities of interest matter for a given problem class, what relative error counts as acceptable for each, and expert-labelled ground truth for physical plausibility so the semantic judge can be calibrated. That last item is the purpose-built benchmark referred to in our main comment.
