@@ -57,3 +57,11 @@ supervisor MCP, F0_noninteractive doesn't).
   `claude_settings.py`, `docker_cmd.py`, `prompts/__init__.py`
 - All AUTOCAMP cells, scoring, contamination, and main-battery results
   are unchanged.
+
+---
+**Compaction occurred at:** 2026-05-04T11:20:14Z
+**Action required:** Read this checkpoint fully to re-orient. Run /pickup if available.
+
+---
+**Compaction occurred at:** 2026-05-04T12:40:35Z
+**Action required:** Read this checkpoint fully to re-orient. Run /pickup if available.

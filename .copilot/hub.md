@@ -411,7 +411,11 @@ any new campaign.
 | XN-016 | OpenHands harness baseline — design, smoketest, full-run | 2026-04-27 | I12 | baseline, harness, openhands, cross-harness |
 | XN-017 | Sub-agent orchestrator results (D-010, DSv4-flash direct) | 2026-04-27 | I14, E25 |  |
 | XN-018 | Sub-agent orchestrator vs prior implementations on full 17 v2 tasks | 2026-04-28 | I14, E25 |  |
+| XN-019 | Bottleneck analysis on Phase 2 cells (DSv4-flash + DSv4-pro) | 2026-05-02 | I15 |  |
 | XN-019 | OpenHands on DSv4-flash — integration, vanilla vs adaptations, multi-seed | 2026-04-28 | I12 | baseline, harness, openhands, dsv4, cross-harness, ablation |
+| XN-020 | Bottleneck analysis on Phase 2 + derisk cells (combined, anchored on F0 vs F4) | 2026-05-02 | I15 |  |
+| XN-021 | Bottleneck analysis on ICL-10 scaleup (SE wins by +4.5pp over F0) | 2026-05-02 | I15 |  |
+| ... | *1 more* | | | |
 
 ## Literature Notes
 
@@ -467,6 +471,20 @@ any new campaign.
 | XN-018 | docs/XN-017_subagent-orchestrator-results.md | derived_from |
 | XN-018 | .copilot/decisions/D-010_subagent-orchestrator.md | derived_from |
 | XN-018 | .copilot/reviews/RN-005_adversarial_orchestrator-17task.md | evidence_against |
+| XN-019 | I15 | dag_nodes |
+| XN-019 | docs/2026-05-02_bottleneck-analysis-pipeline.md | derived_from |
+| XN-019 | docs/2026-05-02_autonomous-campaign-results.md | evidence_for |
+| XN-020 | I15 | dag_nodes |
+| XN-020 | docs/2026-05-02_bottleneck-analysis-pipeline.md | derived_from |
+| XN-020 | docs/XN-019_bottleneck-analysis-phase2.md | derived_from |
+| XN-020 | docs/2026-05-02_autonomous-campaign-results.md | evidence_for |
+| XN-021 | I15 | dag_nodes |
+| XN-021 | docs/XN-019_bottleneck-analysis-phase2.md | derived_from |
+| XN-021 | docs/2026-05-02_autonomous-campaign-results.md | evidence_for |
+| XN-022 | I15 | dag_nodes |
+| XN-022 | docs/XN-019_bottleneck-analysis-phase2.md | derived_from |
+| XN-022 | docs/XN-021_bottleneck-analysis-icl10.md | derived_from |
+| XN-022 | docs/2026-05-02_autonomous-campaign-results.md | evidence_for |
 | D-003 | RN-001 | related_to |
 | D-007 | LN-002 | derived_from |
 | D-008 | RN-003 | derived_from |

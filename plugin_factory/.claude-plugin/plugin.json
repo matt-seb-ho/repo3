@@ -1,0 +1,16 @@
+{
+  "name": "siga-factory",
+  "version": "0.1.0",
+  "description": "Adapt the SIGA four-component template (RAG + lint + memory + self-refine) to a new scientific simulator. Drives the adaptation from a reference Codex /goal-style prompt.",
+  "author": {
+    "name": "SIGA team"
+  },
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "skills",
+    "siga",
+    "scientific-computing"
+  ]
+}
