@@ -80,6 +80,27 @@ enroot start geos-eval sh -lc 'claude --version; uv --version; xmllint --version
 Then a single real task before trusting any aggregate — see
 `sci-sim-op/docs/INTEGRATION_REQUIREMENTS.md` R3.
 
+## Verified end to end on serv6 (2026-08-26)
+
+Built with `run/build_enroot_image.sh` — image 1.3 GB at
+`~/.local/share/enroot/images/geos-eval.sqsh`, runtime container `geos-eval`.
+
+```
+toolchain     claude 2.1.246 · uv 0.12.5 · libxml 20914 · node v22.23.2 · python 3.12.3
+rendered cmd  REPO3_CONTAINER_BACKEND=enroot -> "enroot start", 10 mounts, 24 envs,
+              R1 vars forwarded, no --user/--rm/-v leakage
+mounts        /geos_lib, /opt/geosx-*, GT tree all visible read-only inside
+isolation     read-only mounts enforced; rootfs read-only; writes land in /workspace
+ownership     files created in the workspace are owned by the calling user, no --user
+concurrency   3 simultaneous `enroot start` against one container, all succeeded
+geosx         `geosx --validate-input -i <real GT deck>` ran to completion inside the
+              container with the harness's LD_LIBRARY_PATH
+```
+
+The last line is the one that mattered most: the `--validate-input` oracle is the
+attribute/element-typo checker the hook depends on, it needs six separate
+read-only mounts plus a hand-built `LD_LIBRARY_PATH`, and it works unchanged.
+
 ## Host paths the container still needs
 
 These are host-side and unchanged by the backend switch. All confirmed present
