@@ -77,7 +77,9 @@ mkdir -p /geos_lib /plugins/repo3 /supervisor \
 PROVISION
 
 echo "==> provisioning (this pulls node + npm packages; several minutes)"
-enroot start --root --rw --mount "$WORK:/build:none,bind,ro" "$BUILD_NAME" \
+# x-create=dir: /build does not exist in the base image, and enroot -- unlike
+# docker -- will not create a missing mountpoint implicitly.
+enroot start --root --rw --mount "$WORK:/build:none,bind,ro,x-create=dir" "$BUILD_NAME" \
     bash /build/provision.sh
 
 echo "==> exporting to $OUT"
