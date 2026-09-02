@@ -49,3 +49,10 @@ scripts/analysis/out_4cond/**/*.csv
 
 # SIGA-Evolve working dirs (candidates, eval cache, search runs)
 .evolve/
+
+# Contamination artifact: the v4 task->canonical-XML lookup table (11 of its 17
+# task ids are held-out tasks). Untracked 2026-09-02; kept on disk locally so
+# scripts/siga_evolve/audit_lineage.py can still reproduce the finding. The
+# rationale stays tracked in plugin_evolving/_quarantine/README.md.
+plugin_evolving/v4/
+plugin_evolving/_quarantine/v4/
