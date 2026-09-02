@@ -1,7 +1,7 @@
 # Reconciling the two migrations onto serv6
 
 **Date:** 2026-08-26
-**Supersedes:** `~/PROVENANCE_srv6.md` (VPS line) and
+**Supersedes:** `~/migration/PROVENANCE_srv6.md` (VPS line) and
 `/data/matt/migration/from-macbook/bundle/PORT_TO_NEW_SERVER.md` (MacBook line)
 on every point where they disagree with this file. Both remain readable as
 historical records of what each machine shipped; neither is a current
@@ -18,15 +18,15 @@ single canonical result.
 
 | | Canonical location | Notes |
 |---|---|---|
-| repo3 | `~/src/repo3`, branch `feat/reconcile-migrations` | contains both lines' work; see §2 |
-| repo4 / harness-evolve | `~/src/sci-sim-op`, `master`, **on GitHub** | see §3 — both handoffs are wrong about this |
-| research_agenda | `~/src/research_agenda`, `main` | lit reviews, method-adoption prompt |
-| research-copilot | `~/src/repo3/research-copilot`, `main` @ `cd2181a` | cloned fresh 2026-08-26, gitignored |
+| repo3 | `~/projects/siga`, branch `feat/reconcile-migrations` | contains both lines' work; see §2 |
+| repo4 / harness-evolve | `~/projects/sci-sim-op`, `master`, **on GitHub** | see §3 — both handoffs are wrong about this |
+| research_agenda | `~/research-agenda`, `main` | lit reviews, method-adoption prompt |
+| research-copilot | `~/projects/siga/research-copilot`, `main` @ `cd2181a` | cloned fresh 2026-08-26, gitignored |
 | GEOS data volume | `/data/shared/geophysics_agent_data/data/` | **present** — see §4 |
 | Agent memory | `~/.claude/projects/-home-matt/memory/` | migrated from the VPS's `-home-agent-nextp` path |
 | Container runtime | **enroot**, not docker | see §5 |
 
-`~/src/mac-snapshot/repo3/` is the MacBook working tree, restored beside the
+`~/migration/mac-snapshot/repo3/` is the MacBook working tree, restored beside the
 real checkout. Everything unique in it that belongs in git is now committed
 (§2), so it is **reference-only** and disposable once you are satisfied.
 
@@ -78,7 +78,7 @@ reported test-17 and Held-out-10 numbers:
 
 That makes it the reproducibility anchor for the published numbers, and it is
 **not reachable from any branch** — only the tag keeps `6503be1` alive. It has
-been fetched into `~/src/repo3` and survives there independently of the bundle,
+been fetched into `~/projects/siga` and survives there independently of the bundle,
 but it is currently local-only. **Push it** (`git push origin
 autocamp-experiment-state`) before deleting the MacBook bundle, or the anchor
 goes back to existing in exactly one place.
@@ -95,7 +95,7 @@ goes back to existing in exactly one place.
   keynote PDFs, build output) and the 11.7 MB skill-foundry PDF. This repo's
   convention is that `writing/` tracks source, not build output — canonical
   `writing/arxiv` tracked exactly 9 such files before this. They remain in
-  `~/src/mac-snapshot/` and in the migration tarballs.
+  `~/migration/mac-snapshot/` and in the migration tarballs.
 - **`misc/memp_external/`** — a nested clone of an external reference repo.
 - **`claude-code-project/`** and the MacBook transcript tarball — raw session
   logs, which can contain keys and file contents. Keep them inside the
@@ -108,7 +108,7 @@ goes back to existing in exactly one place.
 
 Both handoff docs make restoring `repo4` the top-priority action on the grounds
 that it "exists nowhere else" and is "not on GitHub". **That is no longer true.**
-It is `~/src/sci-sim-op`, pushed to public GitHub `matt-seb-ho/sci-sim-op`.
+It is `~/projects/sci-sim-op`, pushed to public GitHub `matt-seb-ho/sci-sim-op`.
 Verified here: the bundle's `master` (`96fe199`, 27 commits) is an ancestor of
 `sci-sim-op`'s `master` (`1277c11`, 28 commits), so the full history is
 contained. `pytest tests/` → **523 passed, 2 skipped**, exactly as documented.
@@ -134,7 +134,7 @@ It is present and populated at `/data/shared/geophysics_agent_data/data/`:
 | `eval/tmp_geos` | present, empty, same filesystem as `GEOS/` |
 | `/data/matt/geos_eval_tmp` | present, writable |
 
-`~/src/repo3/data` and `~/src/repo3/runs` symlink into it (created 2026-08-26;
+`~/projects/siga/data` and `~/projects/siga/runs` symlink into it (created 2026-08-26;
 both gitignored). **Still missing:** `eval/interactive_autonomy_2026-05-03` and
 `eval/experiments_relaxed_{medium,hard}`.
 
@@ -227,8 +227,8 @@ disagree about which line is current:
 
 ## 9. Disposable once you are satisfied
 
-- `~/src/mac-snapshot/` — everything unique is now in git.
-- `~/xfer/` bundles and `/data/matt/migration/from-macbook/bundle/`.
+- `~/migration/mac-snapshot/` — everything unique is now in git.
+- `~/migration/xfer/` bundles and `/data/matt/migration/from-macbook/bundle/`.
 - `/data/matt/enroot_test/` — throwaway enroot mechanics probe.
 
 **Keep** `/data/matt/migration/from-macbook/payloads/` — the 7.4 GB sprint
