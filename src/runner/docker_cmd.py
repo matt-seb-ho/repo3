@@ -194,6 +194,11 @@ def build_claude_native_command(
         # and sci-sim-op docs/INTEGRATION_REQUIREMENTS.md.
         "GEOS_EVOLVE_FEEDBACK_SHAPE",
         "GEOS_EVOLVE_CHECKS",
+        # Reasoning effort for the inner `claude` process. Same class of forward
+        # as the two above: the value is chosen outside the container and is
+        # inert unless it arrives. Needed to price a max-effort model honestly --
+        # effort drives output tokens, and output tokens are most of the bill.
+        "CLAUDE_EFFORT",
     ]
     if model and "/" in model:
         # Claude Code treats a "provider/model" string as a real Anthropic

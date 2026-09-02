@@ -40,6 +40,39 @@ Environment knobs:
                            loading phase is much heavier than an xmllint
                            parse (it builds the mesh and data repository).
 
+Stop-policy knobs (INTEGRATION_REQUIREMENTS R1). These are the searchable
+fields of ``StopPolicy``; the runner exports them and docker_cmd.py forwards
+them across the container boundary. Until this file read them, the search
+space contained a knob with no consumer — candidates differing only in
+feedback shape really were different and really did score differently, and
+the difference was noise wearing the label of a mechanism. That is the exact
+failure class that produced the reward-free v1 loop.
+
+    GEOS_EVOLVE_FEEDBACK_SHAPE  minimal | structured_errors | errors_plus_tables
+                           How much the block message tells the agent.
+                           ``structured_errors`` (the default) is byte-for-byte
+                           what this hook emitted before the knob existed, so
+                           an unset environment reproduces the historical runs.
+                           ``minimal`` is the honest control condition for the
+                           claim that richer feedback raises the ceiling: the
+                           agent is told something is wrong and nothing else.
+                           An unrecognised value degrades to the default and is
+                           recorded as ``invalid:<value>`` in the event log — a
+                           stop hook that raises would trap the agent.
+    GEOS_EVOLVE_CHECKS     Comma-separated active check names. When set it is
+                           authoritative and overrides GEOS_HOOK_XMLLINT;
+                           when unset the legacy behaviour holds (``parse``
+                           always, ``geosx_validate`` iff GEOS_HOOK_XMLLINT).
+                           Names this hook does not implement are skipped and
+                           logged under ``checks_unsupported`` rather than
+                           ignored silently — an unread check name is the same
+                           pathology as an unread feedback shape.
+
+Both are read from the process environment first and from
+``$CLAUDE_PLUGIN_ROOT/stop_policy.env`` second. SubprocessRunner writes that
+file into the materialized adapter directory, which is mounted as the plugin
+dir, so a policy still arrives even where the env allowlist drops it.
+
 Input JSON is read from stdin; see Claude Code Stop-hook schema. We only read
 ``stop_hook_active`` to short-circuit nested stops; the rest we do not need.
 """
@@ -59,10 +92,45 @@ from pathlib import Path
 DEFAULT_GEOSX_EXECUTABLE = "/opt/geosx-install/bin/geosx"
 DEFAULT_GEOSX_TIMEOUT = 120
 MAX_FILES_REPORTED = 4
-# geosx prints a clean "***** Exception / LOCATION / Error cause / Message"
-# banner before a multi-frame stack trace on a genuine loading failure.
-# Keep the banner, drop the noisy stack trace.
-GEOSX_ERROR_BANNER_RE = re.compile(r"(\*{5}\s*Exception.*?)(?=\*{5}\s*StackTrace|\Z)", re.DOTALL)
+
+# Mirrors FEEDBACK_SHAPES in sci-sim-op's checks/api.py and core/manifest.py.
+# Duplicated rather than imported for the same reason api.py duplicates it:
+# neither package is present inside the container this hook runs in.
+FEEDBACK_SHAPES = ("minimal", "structured_errors", "errors_plus_tables")
+DEFAULT_FEEDBACK_SHAPE = "structured_errors"
+# The checks this file actually implements. A stop policy may name others
+# (required_sections, constraints, cross_section_refs); running those means
+# vendoring sci-sim-op's checks/ into the plugin directory, which has not been
+# done. Until it is, they are skipped *visibly* — see _active_checks.
+IMPLEMENTED_CHECKS = ("parse", "geosx_validate")
+STOP_POLICY_ENV_FILE = "stop_policy.env"
+# Block reasons carrying a geosx error banner run to a few KB. Logging the
+# reason verbatim is what lets R1 be verified by diffing this hook's own event
+# log rather than by trusting the config; the cap keeps one pathological deck
+# from dominating the corpus.
+MAX_REASON_LOGGED = 4000
+# geosx prints a clean banner before a multi-frame stack trace on a genuine
+# loading failure. Keep the banner, drop the noisy stack trace.
+#
+# This pattern used to require "***** Exception". GEOS 1.1.0 prints "***** Error"
+# -- verified against the real validator inside the container on 2026-08-26 --
+# so the regex never matched, _extract_geosx_error fell through to its "last 15
+# lines" fallback, and every schema_error block handed the agent C++ stack frames
+# instead of the message. The discarded text is the single highest-quality signal
+# this harness produces: GEOS names the offending tag *and enumerates all 57 legal
+# alternatives*. See the R1 verification artifacts under
+# sci-sim-op/.evolve/r1_verification/ for the before/after.
+GEOSX_ERROR_BANNER_RE = re.compile(
+    r"(\*{5}\s*(?:Error|Exception).*?)(?=\*{5}\s*StackTrace|\Z)", re.DOTALL
+)
+
+# Where GEOS stops describing the failure and starts enumerating the legal names.
+# Splitting there is what makes `structured_errors` and `errors_plus_tables`
+# different conditions rather than the same text plus a sentence -- which is the
+# only way an ablation on evidence richness can measure anything.
+GEOSX_TABLE_LEAD_RE = re.compile(
+    r"(All available tags are|available tags are|Valid attributes are|Defined:)"
+)
 
 # Recurring failure mode on OpenRouter-routed open models (gemma, qwen, etc.):
 # the model emits doubled-bracket-with-doubled-name tags like `<<ProblemProblem>`
@@ -104,6 +172,156 @@ def _envflag(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+# Resolved once at the top of main() and read by _log_event, so every event —
+# including the ones emitted before any check runs — carries the policy that
+# produced it. A module global rather than a threaded parameter because this
+# file is a single-shot script with one entry point, and because the value must
+# reach _log_event through call sites (_allow_stop, _block) whose signatures are
+# depended on by the tests in tests/test_verify_outputs_hook.py.
+_POLICY: dict = {}
+
+
+def _stop_policy_file() -> dict[str, str]:
+    """Parse ``stop_policy.env`` from the mounted plugin directory, if present.
+
+    The fallback channel. docker_cmd.py forwards a fixed env allowlist, so a
+    policy that reached the host process could historically still be dropped at
+    the container boundary; the adapter directory is mounted, so a file inside
+    it always arrives.
+    """
+    roots = []
+    env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if env_root:
+        roots.append(Path(env_root))
+    roots.append(Path(__file__).resolve().parent.parent)
+    for root in roots:
+        try:
+            text = (root / STOP_POLICY_ENV_FILE).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        values: dict[str, str] = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            values[key.strip()] = value.strip()
+        return values
+    return {}
+
+
+def _policy_value(name: str) -> tuple[str | None, str]:
+    """Return ``(value, source)`` for a stop-policy name; env wins over file."""
+    raw = os.environ.get(name)
+    if raw is not None and raw.strip():
+        return raw.strip(), "env"
+    from_file = _stop_policy_file().get(name, "")
+    if from_file:
+        return from_file, "file"
+    return None, "default"
+
+
+def _feedback_shape() -> tuple[str, str]:
+    raw, source = _policy_value("GEOS_EVOLVE_FEEDBACK_SHAPE")
+    if raw is None:
+        return DEFAULT_FEEDBACK_SHAPE, source
+    if raw not in FEEDBACK_SHAPES:
+        # Degrade rather than raise: a stop hook that dies leaves the agent with
+        # no verdict at all. Record the bad value so it is auditable instead of
+        # silently becoming the default.
+        return DEFAULT_FEEDBACK_SHAPE, f"invalid:{raw}"
+    return raw, source
+
+
+def _active_checks() -> tuple[tuple[str, ...], str, tuple[str, ...]]:
+    """Return ``(enabled, source, unsupported)``.
+
+    With GEOS_EVOLVE_CHECKS unset the legacy behaviour is reproduced exactly:
+    ``parse`` always runs and ``geosx_validate`` runs iff GEOS_HOOK_XMLLINT is
+    set. With it set, the list is authoritative — including for
+    ``geosx_validate``, which it then overrides GEOS_HOOK_XMLLINT for.
+    """
+    raw, source = _policy_value("GEOS_EVOLVE_CHECKS")
+    if raw is None:
+        legacy = ("parse", "geosx_validate") if _envflag("GEOS_HOOK_XMLLINT") else ("parse",)
+        return legacy, "legacy_geos_hook_xmllint", ()
+    names = tuple(dict.fromkeys(n.strip() for n in raw.split(",") if n.strip()))
+    enabled = tuple(n for n in names if n in IMPLEMENTED_CHECKS)
+    unsupported = tuple(n for n in names if n not in IMPLEMENTED_CHECKS)
+    return enabled, source, unsupported
+
+
+def _carries_table(detail: str) -> bool:
+    """Heuristic: does this validator output already embed a valid-name table?
+
+    Mirrors ``_carries_table`` in sci-sim-op ``checks/api.py``. geosx prints the
+    full set of legal attributes/tags on an unknown-name error, and that table is
+    the highest-quality signal the harness produces — discarding it is exactly
+    what makes a gate "static" rather than actionable.
+    """
+    return (
+        "Valid attributes are" in detail
+        or "available tags are" in detail
+        or "Defined:" in detail
+        or "children of" in detail
+    )
+
+
+def _render_reason(
+    shape: str,
+    *,
+    structured: str,
+    error_count: int = 1,
+    table_detail: str = "",
+    table_text: str = "",
+) -> str:
+    """Shape the block message the agent receives.
+
+    The three shapes are a ladder, and the rungs have to be far enough apart to
+    be worth measuring:
+
+    ``minimal``
+        A count. The agent is told something is wrong and nothing else. This is
+        the honest control condition for the claim that richer feedback raises
+        the ceiling.
+    ``structured_errors``
+        What failed, and where -- but not the enumerated set of legal names.
+    ``errors_plus_tables``
+        The above plus the validator's table, which is the whole point of the
+        name. GEOS answers an unknown tag with all 57 legal alternatives; that
+        table is the highest-quality signal this harness produces.
+
+    For the parse-error path there is no table, so ``structured_errors`` returns
+    the historical message unchanged and an unset environment reproduces the
+    run7/run9 block text byte-for-byte.
+    """
+    if shape == "minimal":
+        return (
+            "Stop blocked by verify_outputs hook: "
+            f"{error_count} validation error(s); fix them before finishing."
+        )
+    if shape == "errors_plus_tables":
+        if table_text:
+            return (
+                f"{structured}\n\n"
+                "The validator listed the names that ARE valid here. Copy one "
+                "verbatim; do not guess a replacement:\n"
+                f"{table_text}"
+            )
+        if _carries_table(table_detail):
+            addendum = (
+                "The validator printed the set of valid names above. Copy a name "
+                "from that list verbatim; do not guess a replacement."
+            )
+        else:
+            addendum = (
+                "Where a validator prints a table of valid tags or attributes, use "
+                "a name from it verbatim rather than guessing."
+            )
+        return f"{structured}\n\n{addendum}"
+    return structured
+
+
 def _event_log_path(inputs_dir: Path) -> Path:
     """Location of the hook event log — one JSONL line per hook invocation."""
     override = os.environ.get("GEOS_HOOK_EVENTS_PATH")
@@ -119,6 +337,7 @@ def _log_event(
     reason_category: str,
     retries_so_far: int,
     detail: str = "",
+    reason: str = "",
 ) -> None:
     path = _event_log_path(inputs_dir)
     entry = {
@@ -128,6 +347,15 @@ def _log_event(
         "retries_so_far": retries_so_far,
         "detail": detail,
     }
+    # R1's verification predicate: two runs differing only in feedback shape
+    # must produce different *feedback text* here, not merely different config.
+    # Logging the reason verbatim also feeds the evidence layer, which otherwise
+    # sees a verdict-only log — a deck failed, with no record of the table of
+    # legal attributes the validator printed alongside.
+    entry.update(_POLICY)
+    if reason:
+        entry["reason"] = reason[:MAX_REASON_LOGGED]
+        entry["reason_chars"] = len(reason)
     try:
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
@@ -159,7 +387,8 @@ def _block(
     retries_so_far: int,
     detail: str = "",
 ) -> None:
-    _log_event(inputs_dir, "block", reason_category, retries_so_far, detail)
+    _log_event(inputs_dir, "block", reason_category, retries_so_far, detail,
+               reason=reason)
     # Stop hook schema: {decision: "block", reason: "..."}.
     # Earlier versions of this file included a hookSpecificOutput block which
     # triggered Claude Code "stop-hook-error" notifications — that field is
@@ -249,6 +478,14 @@ def _entry_files(paths: list[Path]) -> list[Path]:
     return entries or list(paths)
 
 
+def _split_table(detail: str) -> tuple[str, str]:
+    """Split validator output into (what failed, the enumerated legal names)."""
+    match = GEOSX_TABLE_LEAD_RE.search(detail)
+    if not match:
+        return detail.strip(), ""
+    return detail[: match.start()].strip(), detail[match.start():].strip()
+
+
 def _extract_geosx_error(output: str) -> str:
     match = GEOSX_ERROR_BANNER_RE.search(output)
     if match:
@@ -262,15 +499,18 @@ def _extract_geosx_error(output: str) -> str:
 def _geosx_validate(
     paths: list[Path],
     inputs_dir: Path,
-) -> str | None:
-    """Load-validate the deck; return formatted error feedback or None.
+) -> list[tuple[Path, str]]:
+    """Load-validate the deck; return ``[(relative_path, validator_output)]``.
+
+    Empty means every entry validated, or that geosx is unavailable. Formatting
+    is the caller's job because it depends on the feedback shape.
 
     Runs ``geosx -i <entry> --validate-input`` per deck entry file (see
     _entry_files); geosx exits 0 and prints "Input validation completed"
     when the deck loads, non-zero with a "***** Exception" banner on
     failure (missing/broken cross-references, unparseable mesh, etc).
-    Returns None when every entry validates or when geosx is unavailable
-    (we don't penalise the agent for our own infra gap).
+    Returns an empty list when every entry validates or when geosx is
+    unavailable (we don't penalise the agent for our own infra gap).
 
     Caveat vs. the old xmllint path: this catches structural/reference
     failures (missing blocks, dangling names) via geosx actually trying to
@@ -281,7 +521,7 @@ def _geosx_validate(
     """
     executable = os.environ.get("GEOSX_EXECUTABLE", DEFAULT_GEOSX_EXECUTABLE)
     if not Path(executable).exists():
-        return None
+        return []
     timeout = int(os.environ.get("GEOSX_VALIDATE_TIMEOUT", DEFAULT_GEOSX_TIMEOUT) or DEFAULT_GEOSX_TIMEOUT)
 
     files_with_errors: list[tuple[Path, str]] = []
@@ -308,21 +548,40 @@ def _geosx_validate(
             rel = entry
         files_with_errors.append((rel, detail))
 
-    if not files_with_errors:
-        return None
+    return files_with_errors
 
-    parts = []
-    for rel, detail in files_with_errors[:MAX_FILES_REPORTED]:
-        parts.append(f"- {rel}:\n  {detail}")
-    extra = len(files_with_errors) - MAX_FILES_REPORTED
-    summary = "\n".join(parts)
+
+def _validate_summary(
+    failures: list[tuple[Path, str]],
+) -> tuple[str, str]:
+    """Render failures as ``(what failed, the legal-name tables)``."""
+    core_parts: list[str] = []
+    table_parts: list[str] = []
+    for rel, detail in failures[:MAX_FILES_REPORTED]:
+        core, table = _split_table(detail)
+        core_parts.append(f"- {rel}:\n  {core}")
+        if table:
+            table_parts.append(f"- {rel}: {table}")
+    extra = len(failures) - MAX_FILES_REPORTED
+    summary = "\n".join(core_parts)
     if extra > 0:
         summary += f"\n- ...plus {extra} more entry file(s) failing --validate-input."
-    return summary
+    return summary, "\n".join(table_parts)
 
 
 def main() -> None:
+    global _POLICY
     inputs_dir = _inputs_dir()
+
+    shape, shape_source = _feedback_shape()
+    checks, checks_source, unsupported = _active_checks()
+    _POLICY = {
+        "feedback_shape": shape,
+        "feedback_shape_source": shape_source,
+        "checks": list(checks),
+        "checks_source": checks_source,
+        "checks_unsupported": list(unsupported),
+    }
 
     if _envflag("GEOS_HOOK_DISABLE"):
         _allow_stop(inputs_dir, reason_category="disabled")
@@ -344,7 +603,10 @@ def main() -> None:
 
     xml_files = _list_xml(inputs_dir)
 
-    if not xml_files:
+    # An empty workspace and an unparseable deck are both `parse` failures --
+    # the same split sci-sim-op's check_parse makes, where an empty artifact is
+    # an error rather than a silent pass.
+    if "parse" in checks and not xml_files:
         retries = _bump_counter(counter)
         if retries > max_retries:
             _allow_stop(
@@ -352,17 +614,20 @@ def main() -> None:
                 reason_category="no_xml_max_retries",
                 retries_so_far=retries,
             )
-        _block(
+        structured = (
             "Stop blocked by verify_outputs hook: no .xml files found under "
             f"{inputs_dir}. This is a required output of the task. Produce the "
             "requested GEOS XML files now using the Write tool (write under "
-            f"{inputs_dir}/) and then end your turn.",
+            f"{inputs_dir}/) and then end your turn."
+        )
+        _block(
+            _render_reason(shape, structured=structured),
             inputs_dir=inputs_dir,
             reason_category="no_xml",
             retries_so_far=retries,
         )
 
-    parse_err = _first_parse_error(xml_files)
+    parse_err = _first_parse_error(xml_files) if "parse" in checks else None
     if parse_err is not None:
         path, detail = parse_err
         retries = _bump_counter(counter)
@@ -374,18 +639,22 @@ def main() -> None:
             )
         rel = path.relative_to(inputs_dir) if path.is_relative_to(inputs_dir) else path
         hint = _doubled_bracket_hint(path)
-        _block(
+        structured = (
             f"Stop blocked by verify_outputs hook: XML parse error in {rel}: "
-            f"{detail}.{hint} Open the file, fix the syntax, then end your turn.",
+            f"{detail}.{hint} Open the file, fix the syntax, then end your turn."
+        )
+        _block(
+            _render_reason(shape, structured=structured, table_detail=detail),
             inputs_dir=inputs_dir,
             reason_category="parse_error",
             retries_so_far=retries,
             detail=f"{rel}: {detail}",
         )
 
-    if _envflag("GEOS_HOOK_XMLLINT"):
-        feedback = _geosx_validate(xml_files, inputs_dir)
-        if feedback is not None:
+    if "geosx_validate" in checks:
+        failures = _geosx_validate(xml_files, inputs_dir)
+        if failures:
+            feedback, tables = _validate_summary(failures)
             retries = _bump_counter(counter)
             if retries > max_retries:
                 _allow_stop(
@@ -394,7 +663,7 @@ def main() -> None:
                     retries_so_far=retries,
                 )
             executable = os.environ.get("GEOSX_EXECUTABLE", DEFAULT_GEOSX_EXECUTABLE)
-            _block(
+            structured = (
                 "Stop blocked by verify_outputs hook: one or more deck entry "
                 f"files under {inputs_dir} fail to load with "
                 f"`geosx --validate-input`. Errors:\n\n"
@@ -411,7 +680,11 @@ def main() -> None:
                 "attributes and most cross-references), but NOT a name "
                 "reference a solver only resolves during an actual solve "
                 "step (e.g. a discretization name with no matching "
-                "NumericalMethods entry) — those can still slip through.",
+                "NumericalMethods entry) — those can still slip through."
+            )
+            _block(
+                _render_reason(shape, structured=structured, error_count=len(failures),
+                               table_detail=feedback, table_text=tables),
                 inputs_dir=inputs_dir,
                 reason_category="schema_error",
                 retries_so_far=retries,

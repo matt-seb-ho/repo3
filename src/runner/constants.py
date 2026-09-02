@@ -73,6 +73,19 @@ NATIVE_CLAUDE_TOOLS = "default"
 # AskUserQuestion is blocked because this harness runs Claude non-interactively
 # via `claude -p`; any AskUserQuestion call stalls the turn and is a known
 # cause of the premature-end_turn failure mode (see docs/XN-010).
-NATIVE_CLAUDE_DISALLOWED_TOOLS = ("Skill", "AskUserQuestion")
+# Task/Agent/TaskCreate are blocked for two independent reasons, both measured
+# on 2026-08-26 while pricing models for a budget:
+#
+#  (1) COST. A gpt-5.6-luna rollout spawned a subagent that ran on
+#      anthropic/claude-sonnet-5 for 31 turns. That subagent cost $0.90 of the
+#      rollout pair's $1.06 -- 85% of the bill went to a model nobody asked for,
+#      at ~18x the per-token price of the one that was requested.
+#  (2) VALIDITY, which matters more. A rollout nominally "on model X" was partly
+#      executed by a different and stronger model, so any cross-model comparison
+#      built on it is measuring an uncontrolled mixture. The frozen-agent premise
+#      of this whole evaluation requires that the agent be the model we named.
+NATIVE_CLAUDE_DISALLOWED_TOOLS = (
+    "Skill", "AskUserQuestion", "Task", "Agent", "TaskCreate",
+)
 
 DEFAULT_TIMEOUT = 1200  # seconds per task (20 minutes)
